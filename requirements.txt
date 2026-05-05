@@ -15,4 +15,4 @@ Pillow>=7.1.2
 scipy>=1.4.1
 
 # Optional but useful
-ipython  # for interactive debugging
+ultralytics>=8.0.0      # YOLOv8
