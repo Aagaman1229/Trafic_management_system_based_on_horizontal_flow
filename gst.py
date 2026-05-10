@@ -22,11 +22,11 @@ def calculate_gst(vehicle_counts, num_lanes=1):
         float: GST in seconds (clamped)
     """
     CROSSING_TIMES = {
-        'car': 4,
-        'truck': 6,
-        'bus': 6,
-        'motorcycle': 2,
-        'bicycle': 3
+        'car': 9,
+        'truck': 12,
+        'bus': 11,
+        'motorcycle': 7,
+        'bicycle': 12
     }
 
     total_weighted_time = 0
@@ -39,4 +39,4 @@ def calculate_gst(vehicle_counts, num_lanes=1):
 
     gst = (2 / 3) * total_weighted_time / (num_lanes + 1)
     gst = max(15.0, min(60.0, gst))
-    return gst
+    return gst  
