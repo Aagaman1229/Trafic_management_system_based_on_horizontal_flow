@@ -1,8 +1,8 @@
 Final Vehicle Counts:
-  car: 2
-  truck: 2
+  car: 0
+  truck: 0
   bus: 0
-  motorcycle: 2
+  motorcycle: 4
   bicycle: 0
 
 Green Signal Time (GST): 15.00 seconds

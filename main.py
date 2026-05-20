@@ -65,7 +65,7 @@ def merge_all_detections(detections, iou_threshold=0.4):
 
 
 def main():
-    video_path   = "video1.MOV"
+    video_path   = "video1.mp4"
     output_dir   = "outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_video = os.path.join(output_dir, "tracked_video.mp4")
