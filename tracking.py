@@ -5,25 +5,28 @@ from scipy.spatial import distance as dist
 
 class CentroidTracker:
     def __init__(self, max_disappeared=40, max_distance=120,
-                 line_pt1=(100, 200), line_pt2=(400, 300),
+                 line1_pt1=(0, 400), line1_pt2=(200, 200),
+                 line2_pt1=(600, 0), line2_pt2=(200, 200),
                  min_movement=40, history_len=20):
         self.next_object_id = 0
-        self.objects = OrderedDict()      # id -> centroid
-        self.bboxes = OrderedDict()       # id -> bbox
+        self.objects = OrderedDict()
+        self.bboxes = OrderedDict()
         self.disappeared = OrderedDict()
         self.max_disappeared = max_disappeared
         self.max_distance = max_distance
 
-        self.line_pt1 = np.array(line_pt1, dtype=np.float32)
-        self.line_pt2 = np.array(line_pt2, dtype=np.float32)
+        self.line1_pt1 = np.array(line1_pt1, dtype=np.float32)
+        self.line1_pt2 = np.array(line1_pt2, dtype=np.float32)
+        self.line2_pt1 = np.array(line2_pt1, dtype=np.float32)
+        self.line2_pt2 = np.array(line2_pt2, dtype=np.float32)
 
-        self.history = {}                 # id -> list of centroids
-        self.class_history = {}           # id -> list of class names (capped)
+        self.history = {}
+        self.class_history = {}
         self.history_len = history_len
         self.min_movement = min_movement
 
-        self.counted = {}                 # id -> bool
-        self.final_class = {}             # id -> final majority class (None until voted)
+        self.counted = {}
+        self.final_class = {}
 
         self.vehicle_counts = {
             'car': 0,
@@ -53,7 +56,6 @@ class CentroidTracker:
         del self.final_class[object_id]
 
     def update(self, detections):
-        # detections: list of (c_x, c_y, vtype, bbox)
         if len(detections) == 0:
             for object_id in list(self.disappeared.keys()):
                 self.disappeared[object_id] += 1
@@ -90,7 +92,6 @@ class CentroidTracker:
                 self.bboxes[object_id] = input_bboxes[col]
                 self.disappeared[object_id] = 0
 
-                # Append current class to history (capped)
                 self.class_history[object_id].append(input_types[col])
                 if len(self.class_history[object_id]) > self.history_len:
                     self.class_history[object_id].pop(0)
@@ -117,41 +118,36 @@ class CentroidTracker:
         return self._build_return_list()
 
     def _crossed_line(self, prev_centroid, curr_centroid):
-        line_vec = self.line_pt2 - self.line_pt1
-        perp = np.array([-line_vec[1], line_vec[0]])
-        prev_vec = np.array(prev_centroid) - self.line_pt1
-        curr_vec = np.array(curr_centroid) - self.line_pt1
-        prev_sign = np.sign(np.dot(prev_vec, perp))
-        curr_sign = np.sign(np.dot(curr_vec, perp))
-        return prev_sign > 0 and curr_sign < 0
+        def check(pt1, pt2):
+            line_vec = pt2 - pt1
+            perp = np.array([-line_vec[1], line_vec[0]])
+            prev_sign = np.sign(np.dot(np.array(prev_centroid) - pt1, perp))
+            curr_sign = np.sign(np.dot(np.array(curr_centroid) - pt1, perp))
+            return prev_sign > 0 and curr_sign < 0
+        return check(self.line1_pt1, self.line1_pt2) or check(self.line2_pt1, self.line2_pt2)
 
     def _get_final_class(self, object_id):
-        """Return the most frequent class seen for this object."""
         if self.final_class[object_id] is not None:
             return self.final_class[object_id]
         if len(self.class_history[object_id]) == 0:
             return 'unknown'
-        # majority vote
         cnt = Counter(self.class_history[object_id])
         return cnt.most_common(1)[0][0]
 
     def _build_return_list(self):
         active_tracks = []
         for object_id, centroid in self.objects.items():
-            # Count if not already done and movement conditions met
             if not self.counted[object_id]:
                 hist = self.history[object_id]
                 if len(hist) >= 2:
                     total_dx = hist[0][0] - hist[-1][0]
                     if total_dx >= self.min_movement:
                         if self._crossed_line(hist[-2], hist[-1]):
-                            # Use majority voted class
                             final_vtype = self._get_final_class(object_id)
                             if final_vtype in self.vehicle_counts:
                                 self.vehicle_counts[final_vtype] += 1
                                 self.counted[object_id] = True
 
-            # For drawing, still use the current detected class (or final)
             draw_class = self._get_final_class(object_id)
             bbox = self.bboxes.get(object_id, None)
             active_tracks.append((

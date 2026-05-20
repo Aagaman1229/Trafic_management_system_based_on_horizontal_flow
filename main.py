@@ -30,15 +30,8 @@ def compute_iou(boxA, boxB):
     return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
 
 def merge_all_detections(detections, iou_threshold=0.4):
-    """
-    Merge ANY overlapping bounding boxes regardless of class.
-    detections: list of (c_x, c_y, vtype, bbox)
-    Returns: merged list of (c_x, c_y, vtype, bbox)
-    """
-    # We'll work with a list of items, each with its class and bbox
     items = [{'c_x': d[0], 'c_y': d[1], 'vtype': d[2], 'bbox': d[3]} for d in detections]
     merged = []
-    # Sort by area descending -> larger boxes first (they dominate the merge)
     items.sort(key=lambda x: (x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]), reverse=True)
 
     while items:
@@ -52,7 +45,6 @@ def merge_all_detections(detections, iou_threshold=0.4):
             else:
                 i += 1
 
-        # Merge all boxes in to_merge into one
         if len(to_merge) > 1:
             all_boxes = [m['bbox'] for m in to_merge]
             x1 = min(b[0] for b in all_boxes)
@@ -61,11 +53,9 @@ def merge_all_detections(detections, iou_threshold=0.4):
             y2 = max(b[3] for b in all_boxes)
             new_cx = (x1 + x2) / 2
             new_cy = (y1 + y2) / 2
-            # Choose class of the largest box (best is the first, which has largest area)
             merged_vtype = best['vtype']
             merged.append((new_cx, new_cy, merged_vtype, np.array([x1, y1, x2, y2])))
         else:
-            # No merge needed
             merged.append((best['c_x'], best['c_y'], best['vtype'], best['bbox']))
 
     return merged
@@ -92,15 +82,18 @@ def main():
     fps    = cap.get(cv2.CAP_PROP_FPS)
     print(f"Video: {width}x{height} @ {fps:.1f} FPS")
 
-    # ---------- COUNTING LINE ----------
-    line_pt1 = (int(width * 0.9), int(height * 0.99))
-    line_pt2 = (int(width * 0.01), int(height * 0.4))
+    # ---------- TWO COUNTING LINES ----------
+    x_pt      = (int(height / 3.5), int(width / 2.5))   # meeting point
+    line1_pt1 = (0, 0)                          # bottom-left  (0, 1)
+    line1_pt2 = x_pt
+    line2_pt1 = (width, height)                           # top-right    (1, 0)
+    line2_pt2 = x_pt
 
     tracker = CentroidTracker(
         max_disappeared=40,
         max_distance=120,
-        line_pt1=line_pt1,
-        line_pt2=line_pt2,
+        line1_pt1=line1_pt1, line1_pt2=line1_pt2,
+        line2_pt1=line2_pt1, line2_pt2=line2_pt2,
         min_movement=40,
         history_len=20
     )
@@ -135,15 +128,16 @@ def main():
             c_y = (xyxy[1] + xyxy[3]) / 2
             raw_detections.append((c_x, c_y, vtype, xyxy))
 
-        # Merge across all classes -> eliminates double detections of same vehicle
         detections = merge_all_detections(raw_detections, iou_threshold=0.4)
         tracks = tracker.update(detections)
 
         # ---------- DRAWING ----------
         draw_frame = frame.copy()
 
-        cv2.line(draw_frame, line_pt1, line_pt2, (0, 0, 255), 3)
-        cv2.putText(draw_frame, "COUNT LINE", (line_pt2[0]+5, line_pt2[1]-5),
+        # Draw both counting lines
+        cv2.line(draw_frame, line1_pt1, line1_pt2, (0, 0, 255), 3)
+        cv2.line(draw_frame, line2_pt1, line2_pt2, (0, 0, 255), 3)
+        cv2.putText(draw_frame, "COUNT LINE", (x_pt[0]+5, x_pt[1]-5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
 
         for track in tracks:
