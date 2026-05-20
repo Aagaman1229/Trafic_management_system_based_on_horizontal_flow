@@ -1,32 +1,15 @@
 def calculate_gst(vehicle_counts, num_lanes=1):
     """
     Calculate Green Signal Time (GST) based on vehicle counts.
-
-    Formula:
-        gst = (2/3) * ( Σ (vehicle_count_i * crossing_time_i) ) / (num_lanes + 1)
-
-    crossing_time_i (seconds) for each vehicle type:
-        - car:        4
-        - truck:      6
-        - bus:        6
-        - motorcycle: 2
-        - bicycle:    3
-
-    GST is clamped between 15 and 60 seconds.
-
-    Args:
-        vehicle_counts (dict): {'car': int, 'truck': int, 'bus': int, 'motorcycle': int, 'bicycle': int}
-        num_lanes (int): number of lanes (default 1)
-
-    Returns:
-        float: GST in seconds (clamped)
+    Clamped between 15 and 60 seconds.
+    
+    vehicle_counts: dict with keys 'car_truck', 'bus', 'motorcycle', 'bicycle'
     """
     CROSSING_TIMES = {
-        'car': 9,
-        'truck': 12,
-        'bus': 11,
-        'motorcycle': 7,
-        'bicycle': 12
+        'car_truck': 5.0,    # average of car(4) and truck(6)
+        'bus': 6.0,
+        'motorcycle': 2.0,
+        'bicycle': 3.0
     }
 
     total_weighted_time = 0
@@ -39,4 +22,4 @@ def calculate_gst(vehicle_counts, num_lanes=1):
 
     gst = (2 / 3) * total_weighted_time / (num_lanes + 1)
     gst = max(15.0, min(60.0, gst))
-    return gst  
+    return gst

@@ -7,8 +7,8 @@ from gst import calculate_gst
 
 CLASS_TO_TYPE = {
     2: 'car',
-    5: 'bus',
     7: 'truck',
+    5: 'bus',
     3: 'motorcycle',
     1: 'bicycle'
 }
@@ -29,46 +29,56 @@ def compute_iou(boxA, boxB):
     boxBArea = (boxB[2]-boxB[0]) * (boxB[3]-boxB[1])
     return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
 
-def merge_detections(detections, iou_threshold=0.4):
-    groups = {}
-    for d in detections:
-        vtype = d[2]
-        groups.setdefault(vtype, []).append(d)
-
+def merge_all_detections(detections, iou_threshold=0.4):
+    """
+    Merge ANY overlapping bounding boxes regardless of class.
+    detections: list of (c_x, c_y, vtype, bbox)
+    Returns: merged list of (c_x, c_y, vtype, bbox)
+    """
+    # We'll work with a list of items, each with its class and bbox
+    items = [{'c_x': d[0], 'c_y': d[1], 'vtype': d[2], 'bbox': d[3]} for d in detections]
     merged = []
-    for vtype, items in groups.items():
-        items.sort(key=lambda x: (x[3][2]-x[3][0])*(x[3][3]-x[3][1]), reverse=True)
-        while items:
-            best = items.pop(0)
-            best_bbox = best[3]
-            to_merge = [best]
-            i = 0
-            while i < len(items):
-                if compute_iou(best_bbox, items[i][3]) > iou_threshold:
-                    to_merge.append(items.pop(i))
-                else:
-                    i += 1
-            if len(to_merge) > 1:
-                all_boxes = [d[3] for d in to_merge]
-                x1 = min(b[0] for b in all_boxes)
-                y1 = min(b[1] for b in all_boxes)
-                x2 = max(b[2] for b in all_boxes)
-                y2 = max(b[3] for b in all_boxes)
-                new_cx = (x1+x2)/2; new_cy = (y1+y2)/2
-                merged.append((new_cx, new_cy, vtype, np.array([x1,y1,x2,y2])))
+    # Sort by area descending -> larger boxes first (they dominate the merge)
+    items.sort(key=lambda x: (x['bbox'][2]-x['bbox'][0])*(x['bbox'][3]-x['bbox'][1]), reverse=True)
+
+    while items:
+        best = items.pop(0)
+        best_bbox = best['bbox']
+        to_merge = [best]
+        i = 0
+        while i < len(items):
+            if compute_iou(best_bbox, items[i]['bbox']) > iou_threshold:
+                to_merge.append(items.pop(i))
             else:
-                merged.append(best)
+                i += 1
+
+        # Merge all boxes in to_merge into one
+        if len(to_merge) > 1:
+            all_boxes = [m['bbox'] for m in to_merge]
+            x1 = min(b[0] for b in all_boxes)
+            y1 = min(b[1] for b in all_boxes)
+            x2 = max(b[2] for b in all_boxes)
+            y2 = max(b[3] for b in all_boxes)
+            new_cx = (x1 + x2) / 2
+            new_cy = (y1 + y2) / 2
+            # Choose class of the largest box (best is the first, which has largest area)
+            merged_vtype = best['vtype']
+            merged.append((new_cx, new_cy, merged_vtype, np.array([x1, y1, x2, y2])))
+        else:
+            # No merge needed
+            merged.append((best['c_x'], best['c_y'], best['vtype'], best['bbox']))
+
     return merged
 
 def main():
-    video_path = "video1.mov"
+    video_path = "video1.MOV"
     output_dir = "outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_video = os.path.join(output_dir, "tracked_video.mp4")
     output_gst = os.path.join(output_dir, "gst_result.txt")
 
-    print("Loading YOLOv8 nano...")
-    model = YOLO('yolov8n.pt')
+    print("Loading YOLOv8s (small) for better accuracy...")
+    model = YOLO('yolov8s.pt')
     model.conf = 0.35
     model.classes = [1,2,3,5,7]
 
@@ -82,32 +92,30 @@ def main():
     fps    = cap.get(cv2.CAP_PROP_FPS)
     print(f"Video: {width}x{height} @ {fps:.1f} FPS")
 
-    # ---------- DIAGONAL COUNTING LINE (edges) ----------
-    # Right side, lower → Left side, upper
-    line_pt1 = (int(width * 0.7), int(height * 0.99))
-    line_pt2 = (int(width * 0.01), int(height * 0.6))
+    # ---------- COUNTING LINE ----------
+    line_pt1 = (int(width * 0.9), int(height * 0.99))
+    line_pt2 = (int(width * 0.01), int(height * 0.4))
 
     tracker = CentroidTracker(
         max_disappeared=40,
         max_distance=120,
         line_pt1=line_pt1,
         line_pt2=line_pt2,
-        min_movement=40,          # pixels of leftward motion required
+        min_movement=40,
         history_len=20
     )
 
-    # Display window (downscale)
     MAX_DISPLAY = 1280
     scale = min(MAX_DISPLAY / width, MAX_DISPLAY / height, 1.0)
     display_w, display_h = int(width*scale), int(height*scale)
-    WIN_NAME = "Right-to-Left Vehicle Counter"
+    WIN_NAME = "Right-to-Left Vehicle Counter (Class-Stable)"
     cv2.namedWindow(WIN_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WIN_NAME, display_w, display_h)
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
-    INFERENCE_SIZE = 256
+    INFERENCE_SIZE = 416
     print("Processing... Press 'q' to quit.\n")
 
     while True:
@@ -115,7 +123,6 @@ def main():
         if not ret:
             break
 
-        # Detection
         results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
         raw_detections = []
         for det in results.boxes:
@@ -128,26 +135,20 @@ def main():
             c_y = (xyxy[1] + xyxy[3]) / 2
             raw_detections.append((c_x, c_y, vtype, xyxy))
 
-        # Merge duplicates (same vehicle type, overlapping boxes)
-        detections = merge_detections(raw_detections, iou_threshold=0.4)
-
-        # Update tracker
+        # Merge across all classes -> eliminates double detections of same vehicle
+        detections = merge_all_detections(raw_detections, iou_threshold=0.4)
         tracks = tracker.update(detections)
 
         # ---------- DRAWING ----------
         draw_frame = frame.copy()
 
-        # Red counting line
         cv2.line(draw_frame, line_pt1, line_pt2, (0, 0, 255), 3)
         cv2.putText(draw_frame, "COUNT LINE", (line_pt2[0]+5, line_pt2[1]-5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
 
-        # Draw tracked vehicles
         for track in tracks:
             track_id, c_x, c_y, vtype, bbox, _ = track
             color = TYPE_COLORS.get(vtype, (255,255,255))
-
-            # Bounding box + label
             if bbox is not None:
                 x1,y1,x2,y2 = map(int, bbox)
                 cv2.rectangle(draw_frame, (x1,y1), (x2,y2), color, 3)
@@ -159,13 +160,11 @@ def main():
             else:
                 cv2.circle(draw_frame, (int(c_x), int(c_y)), 6, color, -1)
 
-            # Centroid trail (the "pen drawing")
             trail = tracker.get_trail(track_id)
             if len(trail) > 1:
                 pts = np.array(trail, np.int32).reshape((-1, 1, 2))
                 cv2.polylines(draw_frame, [pts], False, color, 2)
 
-        # Live counts + GST
         y0 = int(height*0.05)
         cv2.putText(draw_frame, "Right-to-Left Counts:", (20, y0-20),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 2)
@@ -179,7 +178,6 @@ def main():
         cv2.putText(draw_frame, f"GST: {live_gst:.1f} s", (20, y0+50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0,255,255), 3)
 
-        # Show
         display_frame = cv2.resize(draw_frame, (display_w, display_h))
         cv2.imshow(WIN_NAME, display_frame)
         out.write(draw_frame)
