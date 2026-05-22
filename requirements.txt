@@ -16,3 +16,5 @@ scipy>=1.4.1
 
 # Optional but useful
 ultralytics>=8.0.0      # YOLOv8
+
+pygame>=2.5.2          # For visualization and game development
