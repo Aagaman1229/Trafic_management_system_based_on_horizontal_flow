@@ -7,33 +7,75 @@ from gst import calculate_gst
 
 CLASS_TO_TYPE = {
     2: 'car',
-    5: 'bus',
     7: 'truck',
+    5: 'bus',
     3: 'motorcycle',
     1: 'bicycle'
 }
 
 TYPE_COLORS = {
-    'car': (0, 255, 0),
-    'truck': (0, 255, 255),
-    'bus': (255, 0, 0),
-    'motorcycle': (255, 0, 255),
-    'bicycle': (0, 165, 255)
+    'car':        (0,   255,   0),
+    'truck':      (0,   255, 255),
+    'bus':        (255,   0,   0),
+    'motorcycle': (255,   0, 255),
+    'bicycle':    (0,   165, 255)
 }
 
+
+def compute_iou(boxA, boxB):
+    xA = max(boxA[0], boxB[0]); yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2]); yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+
+
+def merge_all_detections(detections, iou_threshold=0.4):
+    """Merge overlapping boxes across all classes — prevents double-detection."""
+    items = [{'c_x': d[0], 'c_y': d[1], 'vtype': d[2], 'bbox': d[3]}
+             for d in detections]
+    items.sort(
+        key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]),
+        reverse=True
+    )
+    merged = []
+    while items:
+        best = items.pop(0)
+        to_merge = [best]
+        i = 0
+        while i < len(items):
+            if compute_iou(best['bbox'], items[i]['bbox']) > iou_threshold:
+                to_merge.append(items.pop(i))
+            else:
+                i += 1
+        if len(to_merge) > 1:
+            all_boxes = [m['bbox'] for m in to_merge]
+            x1 = min(b[0] for b in all_boxes)
+            y1 = min(b[1] for b in all_boxes)
+            x2 = max(b[2] for b in all_boxes)
+            y2 = max(b[3] for b in all_boxes)
+            merged.append(((x1+x2)/2, (y1+y2)/2,
+                           best['vtype'],
+                           np.array([x1, y1, x2, y2])))
+        else:
+            merged.append((best['c_x'], best['c_y'],
+                           best['vtype'], best['bbox']))
+    return merged
+
+
 def main():
-    video_path = "video1.mov"
-    output_dir = "outputs"
+    video_path   = "video1.mp4"
+    output_dir   = "outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_video = os.path.join(output_dir, "tracked_video.mp4")
-    output_gst = os.path.join(output_dir, "gst_result.txt")
+    output_gst   = os.path.join(output_dir, "gst_result.txt")
 
-    print("Loading YOLOv8 nano (optimised for speed)...")
-    model = YOLO('yolov8n.pt')
-    model.conf = 0.35
-    model.classes = [1,2,3,5,7]
-
-    # ❌ DO NOT use model.half() – it crashes on some GPUs during layer fusion
+    print("Loading YOLOv8s...")
+    model = YOLO('yolov8s.pt')
+    model.conf    = 0.35
+    model.iou     = 0.45
+    model.classes = [1, 2, 3, 5, 7]
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -43,46 +85,36 @@ def main():
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps    = cap.get(cv2.CAP_PROP_FPS)
-    print(f"Video: {width}×{height} @ {fps:.1f} FPS")
+    print(f"Video: {width}x{height} @ {fps:.1f} FPS")
 
-    # ---- ROI (adjust to your lane – keep the original) ----
-    roi_polygon = np.array([
-        [0, height],
-        [0, int(height * 0.4)],
-        [int(width * 0.6), int(height * 0.4)],
-        [int(width * 0.6), height]
-    ], np.int32)
+    # ── YOUR EXACT LINE COORDINATES ─────────────────────────────────────
+    x_pt      = (int(height / 3.5), int(width / 2.5))   # meeting point
+    line1_pt1 = (0, 0)                                   # top-left corner
+    line1_pt2 = x_pt
+    line2_pt1 = (width, height)                          # bottom-right corner
+    line2_pt2 = x_pt
+    # ────────────────────────────────────────────────────────────────────
 
-    # ---- Display window: downscale huge frames (max 1280 pixels on largest side) ----
+    tracker = CentroidTracker(
+        max_disappeared=40,
+        max_distance=120,
+        line1_pt1=line1_pt1, line1_pt2=line1_pt2,
+        line2_pt1=line2_pt1, line2_pt2=line2_pt2,
+        min_movement=40,
+        history_len=20
+    )
+
     MAX_DISPLAY = 1280
     scale = min(MAX_DISPLAY / width, MAX_DISPLAY / height, 1.0)
-    display_w = int(width * scale)
-    display_h = int(height * scale)
-    WIN_NAME = "Left-moving vehicle tracker"
+    display_w, display_h = int(width * scale), int(height * scale)
+    WIN_NAME = "Vehicle Counter"
     cv2.namedWindow(WIN_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WIN_NAME, display_w, display_h)
-
-    counting_line_x = int(width * 0.3)
-
-    # ---- Tracker settings ----
-    tracker = CentroidTracker(
-        max_disappeared=25,
-        max_distance=90,
-        line_x=0.3,
-        roi_polygon=roi_polygon,
-        direction_frames=10,
-        min_movement=30
-    )
-    tracker.set_frame_width(width)
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
-    # ---- Speed settings ----
-    INFERENCE_SIZE = 256   # lower = faster; try 320 if you miss small vehicles
-    SKIP_FRAMES = 0        # set to 1 if still laggy (detection every 2nd frame)
-
-    frame_counter = 0
+    INFERENCE_SIZE = 640
     print("Processing... Press 'q' to quit.\n")
 
     while True:
@@ -90,70 +122,70 @@ def main():
         if not ret:
             break
 
-        frame_counter += 1
-        run_detection = (SKIP_FRAMES == 0) or (frame_counter % (SKIP_FRAMES + 1) == 1)
+        results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
 
-        # ------------------- DETECTION -------------------
-        if run_detection:
-            results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
-            detections = []
-            for det in results.boxes:
-                cls_id = int(det.cls[0])
-                if cls_id not in CLASS_TO_TYPE:
-                    continue
-                vtype = CLASS_TO_TYPE[cls_id]
-                xyxy = det.xyxy[0].cpu().numpy()
-                c_x = (xyxy[0] + xyxy[2]) / 2
-                c_y = (xyxy[1] + xyxy[3]) / 2
-                detections.append((c_x, c_y, vtype, xyxy))
-        else:
-            detections = []
+        raw_detections = []
+        for det in results.boxes:
+            cls_id = int(det.cls[0])
+            if cls_id not in CLASS_TO_TYPE:
+                continue
+            vtype = CLASS_TO_TYPE[cls_id]
+            xyxy  = det.xyxy[0].cpu().numpy()
+            c_x   = (xyxy[0] + xyxy[2]) / 2
+            c_y   = (xyxy[1] + xyxy[3]) / 2
+            raw_detections.append((c_x, c_y, vtype, xyxy))
 
-        # ------------------- TRACKING -------------------
-        tracks = tracker.update(detections)
+        detections = merge_all_detections(raw_detections, iou_threshold=0.4)
+        tracks     = tracker.update(detections)
 
-        # ------------------- DRAWING -------------------
-        # Draw on a copy of the original frame (for saving)
+        # ── DRAWING ─────────────────────────────────────────────────────
         draw_frame = frame.copy()
 
-        cv2.polylines(draw_frame, [roi_polygon], True, (0, 255, 0), 2)
-        cv2.line(draw_frame, (counting_line_x, 0), (counting_line_x, height), (0, 0, 255), 3)
-        cv2.putText(draw_frame, "COUNT LINE", (counting_line_x+5, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
+        cv2.line(draw_frame, line1_pt1, line1_pt2, (0, 0, 255), 3)
+        cv2.line(draw_frame, line2_pt1, line2_pt2, (0, 0, 255), 3)
+        cv2.circle(draw_frame, x_pt, 8, (0, 0, 255), -1)
+        cv2.putText(draw_frame, "COUNT LINE",
+                    (x_pt[0] + 10, x_pt[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         for track in tracks:
-            track_id, c_x, c_y, vtype, bbox, moving_left = track
-            color = TYPE_COLORS.get(vtype, (255,255,255))
+            track_id, c_x, c_y, vtype, bbox, _ = track
+            color = TYPE_COLORS.get(vtype, (255, 255, 255))
+
             if bbox is not None:
                 x1, y1, x2, y2 = map(int, bbox)
                 cv2.rectangle(draw_frame, (x1, y1), (x2, y2), color, 3)
                 label = f"ID:{track_id} {vtype}"
-                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                cv2.rectangle(draw_frame, (x1, y1-th-10), (x1+tw+10, y1), color, -1)
-                cv2.putText(draw_frame, label, (x1+5, y1-5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 2)
+                (tw, th), _ = cv2.getTextSize(
+                    label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                cv2.rectangle(draw_frame,
+                              (x1, y1 - th - 10), (x1 + tw + 10, y1),
+                              color, -1)
+                cv2.putText(draw_frame, label, (x1 + 5, y1 - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
             else:
-                cv2.circle(draw_frame, (int(c_x), int(c_y)), 5, color, -1)
+                cv2.circle(draw_frame, (int(c_x), int(c_y)), 6, color, -1)
 
-        # Live counts + GST (position adjusted for large frame)
-        y0 = int(height * 0.05)  # 5% from top
-        cv2.putText(draw_frame, "Left-moving counts:", (20, y0-20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255,255,255), 2)
+            trail = tracker.get_trail(track_id)
+            if len(trail) > 1:
+                pts = np.array(trail, np.int32).reshape((-1, 1, 2))
+                cv2.polylines(draw_frame, [pts], False, color, 2)
+
+        y0 = int(height * 0.05)
+        cv2.putText(draw_frame, "Counts:", (20, y0 - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
         for vtype, count in tracker.vehicle_counts.items():
-            color = TYPE_COLORS.get(vtype, (255,255,255))
-            cv2.putText(draw_frame, f"{vtype}: {count}", (30, y0+30),
+            color = TYPE_COLORS.get(vtype, (255, 255, 255))
+            cv2.putText(draw_frame, f"{vtype}: {count}", (30, y0 + 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
             y0 += 40
 
         live_gst = calculate_gst(tracker.vehicle_counts, num_lanes=1)
-        cv2.putText(draw_frame, f"GST: {live_gst:.1f} s", (20, y0+50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0,255,255), 3)
+        cv2.putText(draw_frame, f"GST: {live_gst:.1f} s", (20, y0 + 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 255), 3)
 
-        # ------------------- DISPLAY (downscaled) -------------------
         display_frame = cv2.resize(draw_frame, (display_w, display_h))
         cv2.imshow(WIN_NAME, display_frame)
-
-        # ------------------- SAVE (original resolution) -------------------
         out.write(draw_frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -163,11 +195,11 @@ def main():
     out.release()
     cv2.destroyAllWindows()
 
-    counts = tracker.vehicle_counts
+    counts    = tracker.vehicle_counts
     final_gst = calculate_gst(counts, num_lanes=1)
 
     with open(output_gst, 'w') as f:
-        f.write("Final Vehicle Counts (left-moving only):\n")
+        f.write("Final Vehicle Counts:\n")
         for vtype, count in counts.items():
             f.write(f"  {vtype}: {count}\n")
         f.write(f"\nGreen Signal Time (GST): {final_gst:.2f} seconds\n")
@@ -176,6 +208,7 @@ def main():
     print("Counts:", counts)
     print(f"Green Signal Time: {final_gst:.2f} sec")
     print(f"Output saved in '{output_dir}/'")
+
 
 if __name__ == "__main__":
     main()
