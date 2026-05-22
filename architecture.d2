@@ -1,0 +1,360 @@
+##############################################################################
+# Smart Traffic Management System — System Architecture Diagram
+# Format: D2 (https://d2lang.com)
+# Target: IEEE / Thesis / A4 Print
+##############################################################################
+
+direction: right
+
+# ── Global Style ──────────────────────────────────────────────────────────
+
+style: {
+  fill: "#ffffff"
+}
+
+# ── 1. INPUT LAYER ────────────────────────────────────────────────────────
+
+input: {
+  label: "Input Layer"
+  style: {
+    fill: "#e8f0fe"
+    stroke: "#1a73e8"
+    stroke-width: 2
+    border-radius: 10
+    font-size: 18
+    bold: true
+  }
+
+  videos: {
+    label: |md
+      **4 Video Sources**
+      Directions: A, B, C, D
+      (Real-time traffic feeds)
+    |
+    shape: rectangle
+    style: {
+      fill: "#d2e3fc"
+      stroke: "#1967d2"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 16
+    }
+  }
+}
+
+# ── 2. AI DETECTION PIPELINE ─────────────────────────────────────────────
+
+detection: {
+  label: "AI Detection Pipeline"
+  style: {
+    fill: "#fef7e0"
+    stroke: "#f9ab00"
+    stroke-width: 2
+    border-radius: 10
+    font-size: 18
+    bold: true
+  }
+
+  preprocessor: {
+    label: |md
+      **Frame Preprocessor**
+      Resize · Normalize · ROI
+    |
+    shape: rectangle
+    style: {
+      fill: "#feefc3"
+      stroke: "#e37400"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  detector: {
+    label: |md
+      **Vehicle Detection**
+      Pre-trained Model (YOLOv8)
+    |
+    shape: rectangle
+    style: {
+      fill: "#feefc3"
+      stroke: "#e37400"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  tracker: {
+    label: |md
+      **Vehicle Tracking**
+      Count per Direction
+      (A, B, C, D)
+    |
+    shape: rectangle
+    style: {
+      fill: "#feefc3"
+      stroke: "#e37400"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  preprocessor -> detector: "Frames" {
+    style: {
+      stroke: "#e37400"
+      stroke-width: 2
+      font-size: 14
+    }
+  }
+  detector -> tracker: "Detections" {
+    style: {
+      stroke: "#e37400"
+      stroke-width: 2
+      font-size: 14
+    }
+  }
+}
+
+# ── 3. GST COMPUTATION ENGINE ────────────────────────────────────────────
+
+gst: {
+  label: "Signal Timing Engine"
+  style: {
+    fill: "#e8f5e9"
+    stroke: "#1e8e3e"
+    stroke-width: 2
+    border-radius: 10
+    font-size: 18
+    bold: true
+  }
+
+  calculator: {
+    label: |md
+      **GST Calculation**
+      `calculate_gst()`
+      2/3 Rule · Nepal Traffic Logic
+      Bounds: 15 – 60 sec
+    |
+    shape: rectangle
+    style: {
+      fill: "#ceead6"
+      stroke: "#137333"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  controller: {
+    label: |md
+      **Traffic Signal Controller**
+      Cyclic Order: A → B → C → D
+      One green signal at a time
+    |
+    shape: rectangle
+    style: {
+      fill: "#ceead6"
+      stroke: "#137333"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  calculator -> controller: "GST Values\n(per direction)" {
+    style: {
+      stroke: "#137333"
+      stroke-width: 2
+      font-size: 14
+    }
+  }
+}
+
+# ── 4. PYGAME SIMULATION ENGINE ──────────────────────────────────────────
+
+simulation: {
+  label: "PyGame Simulation Engine"
+  style: {
+    fill: "#fce8e6"
+    stroke: "#d93025"
+    stroke-width: 2
+    border-radius: 10
+    font-size: 18
+    bold: true
+  }
+
+  vehicles: {
+    label: |md
+      **Vehicle System**
+      Physics · Queue · Collision
+    |
+    shape: rectangle
+    style: {
+      fill: "#fadbd8"
+      stroke: "#c5221f"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  road: {
+    label: |md
+      **Road Network**
+      4-Way Junction Layout
+    |
+    shape: rectangle
+    style: {
+      fill: "#fadbd8"
+      stroke: "#c5221f"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  lights: {
+    label: |md
+      **Traffic Lights**
+      State: Red / Yellow / Green
+    |
+    shape: rectangle
+    style: {
+      fill: "#fadbd8"
+      stroke: "#c5221f"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  hud: {
+    label: |md
+      **HUD Dashboard**
+      Real-Time Stats & Timers
+    |
+    shape: rectangle
+    style: {
+      fill: "#fadbd8"
+      stroke: "#c5221f"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 15
+    }
+  }
+
+  road -> vehicles: {
+    style: {
+      stroke: "#c5221f"
+      stroke-width: 1
+      stroke-dash: 3
+    }
+  }
+  road -> lights: {
+    style: {
+      stroke: "#c5221f"
+      stroke-width: 1
+      stroke-dash: 3
+    }
+  }
+  vehicles -> hud: {
+    style: {
+      stroke: "#c5221f"
+      stroke-width: 1
+      stroke-dash: 3
+    }
+  }
+  lights -> hud: {
+    style: {
+      stroke: "#c5221f"
+      stroke-width: 1
+      stroke-dash: 3
+    }
+  }
+}
+
+# ── 5. OUTPUT ─────────────────────────────────────────────────────────────
+
+output: {
+  label: "Output"
+  style: {
+    fill: "#f3e8fd"
+    stroke: "#7627bb"
+    stroke-width: 2
+    border-radius: 10
+    font-size: 18
+    bold: true
+  }
+
+  visualization: {
+    label: |md
+      **Real-Time Traffic Visualization**
+      PyGame Window Output
+    |
+    shape: rectangle
+    style: {
+      fill: "#e9d5f5"
+      stroke: "#7627bb"
+      stroke-width: 2
+      border-radius: 8
+      font-size: 16
+    }
+  }
+}
+
+# ── INTER-LAYER CONNECTIONS (Main Data Flow) ─────────────────────────────
+
+input.videos -> detection.preprocessor: "Video Frames\n(4 directions)" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 3
+    font-size: 14
+    bold: true
+  }
+}
+
+detection.tracker -> gst.calculator: "Vehicle Counts\n{A, B, C, D}" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 3
+    font-size: 14
+    bold: true
+  }
+}
+
+gst.controller -> simulation.lights: "Signal States\n& Timings" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 3
+    font-size: 14
+    bold: true
+  }
+}
+
+gst.controller -> simulation.vehicles: "Queue Release\nTriggers" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 2
+    font-size: 13
+    stroke-dash: 5
+  }
+}
+
+simulation.hud -> output.visualization: "Rendered Frame" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 3
+    font-size: 14
+    bold: true
+  }
+}
+
+simulation.road -> output.visualization: "" {
+  style: {
+    stroke: "#5f6368"
+    stroke-width: 2
+    stroke-dash: 5
+  }
+}

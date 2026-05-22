@@ -1,11 +1,51 @@
-venv
-./venv
-/venv
-./high_traffic.MOV
-./outputs
-./video1.MOV
-./video1.mp4
-video1.mp4
-video1.MOV
-high_traffic.MOV
-/outputs
+# ─── Python ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Virtual Environment ──────────────────────────────
+venv/
+.venv/
+venv311/
+env/
+.env/
+
+# ─── Video Files (Large, not committed) ───────────────
+*.MOV
+*.mp4
+*.avi
+*.mkv
+*.wmv
+*.flv
+
+# ─── YOLO / ML Model Weights (auto-downloaded) ───────
+*.pt
+*.pth
+*.pkl
+*.onnx
+*.engine
+
+# ─── Output Data ──────────────────────────────────────
+outputs/
+*.csv
+*.json
+traffic_log.csv
+
+# ─── Scratch / Temp ───────────────────────────────────
+scratch/
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# ─── IDE / OS ─────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-*
+.DS_Store
+Thumbs.db
+*.log

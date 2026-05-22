@@ -1,213 +1,224 @@
-import cv2
 import os
-import numpy as np
-from ultralytics import YOLO
-from tracking import CentroidTracker
-from gst import calculate_gst
+import sys
+import csv
+import json
+import time
+import threading
+from datetime import datetime
 
-CLASS_TO_TYPE = {
-    2: 'car',
-    7: 'truck',
-    5: 'bus',
-    3: 'motorcycle',
-    1: 'bicycle'
+from shared_state import SharedTrafficState
+from video_manager import VideoManager
+from signal_controller import TrafficSignalController
+from video_display import start_display_thread
+
+OUTPUT_DIR = "outputs"
+FULL_CSV = os.path.join(OUTPUT_DIR, "full_traffic_data.csv")
+GST_SUMMARY = os.path.join(OUTPUT_DIR, "gst_summary.txt")
+GST_CACHE = os.path.join(OUTPUT_DIR, "gst_cache.json")
+TRAFFIC_LOG = os.path.join(OUTPUT_DIR, "traffic_log.csv")
+
+DIR_NAMES = ['A', 'B', 'C', 'D']
+
+ROAD_FULL_NAMES = {
+    'A': 'China Pull Road',
+    'B': 'Airport Road',
+    'C': 'Sabhagriha Chowk Road',
+    'D': 'Naya Bazar Road',
 }
 
-TYPE_COLORS = {
-    'car':        (0,   255,   0),
-    'truck':      (0,   255, 255),
-    'bus':        (255,   0,   0),
-    'motorcycle': (255,   0, 255),
-    'bicycle':    (0,   165, 255)
+ROAD_CONFIG_MAP = {
+    'A': {"num_lanes": 4, "min_gst": 12, "max_gst": 44},
+    'B': {"num_lanes": 6, "min_gst": 20, "max_gst": 27},
+    'C': {"num_lanes": 4, "min_gst": 15, "max_gst": 44},
+    'D': {"num_lanes": 4, "min_gst": 15, "max_gst": 28},
 }
 
-
-def compute_iou(boxA, boxB):
-    xA = max(boxA[0], boxB[0]); yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2]); yB = min(boxA[3], boxB[3])
-    interArea = max(0, xB - xA) * max(0, yB - yA)
-    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-    return interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+switch_queue = []
 
 
-def merge_all_detections(detections, iou_threshold=0.4):
-    """Merge overlapping boxes across all classes — prevents double-detection."""
-    items = [{'c_x': d[0], 'c_y': d[1], 'vtype': d[2], 'bbox': d[3]}
-             for d in detections]
-    items.sort(
-        key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]),
-        reverse=True
-    )
-    merged = []
-    while items:
-        best = items.pop(0)
-        to_merge = [best]
-        i = 0
-        while i < len(items):
-            if compute_iou(best['bbox'], items[i]['bbox']) > iou_threshold:
-                to_merge.append(items.pop(i))
-            else:
-                i += 1
-        if len(to_merge) > 1:
-            all_boxes = [m['bbox'] for m in to_merge]
-            x1 = min(b[0] for b in all_boxes)
-            y1 = min(b[1] for b in all_boxes)
-            x2 = max(b[2] for b in all_boxes)
-            y2 = max(b[3] for b in all_boxes)
-            merged.append(((x1+x2)/2, (y1+y2)/2,
-                           best['vtype'],
-                           np.array([x1, y1, x2, y2])))
-        else:
-            merged.append((best['c_x'], best['c_y'],
-                           best['vtype'], best['bbox']))
-    return merged
+def write_full_csv(shared_state):
+    with open(FULL_CSV, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp", "road", "road_name", "car", "truck", "bus",
+            "motorcycle", "bicycle", "total_vehicles",
+            "num_lanes", "gst_seconds", "active_signal"
+        ])
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for road in DIR_NAMES:
+            counts = shared_state.get_counts(road)
+            total = sum(counts.values())
+            cfg = ROAD_CONFIG_MAP[road]
+            gst = shared_state.get_gst(road)
+            sig = shared_state.get_signal_state(road)
+            rn = ROAD_FULL_NAMES.get(road, road)
+            writer.writerow([
+                ts, road, rn,
+                counts.get('car', 0), counts.get('truck', 0),
+                counts.get('bus', 0), counts.get('motorcycle', 0),
+                counts.get('bicycle', 0),
+                total, cfg["num_lanes"], round(gst, 2), sig
+            ])
+
+
+def write_gst_summary(shared_state):
+    with open(GST_SUMMARY, 'w') as f:
+        f.write("=== GST Summary Report — Prithivi Chowk, Pokhara ===\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        for road in DIR_NAMES:
+            counts = shared_state.get_counts(road)
+            total = sum(counts.values())
+            cfg = ROAD_CONFIG_MAP[road]
+            gst = shared_state.get_gst(road)
+            rn = ROAD_FULL_NAMES.get(road, f"Road {road}")
+            f.write(f"{rn} ({road}):\n")
+            f.write(f"  Lane count: {cfg['num_lanes']}\n")
+            f.write(f"  GST range: [{cfg['min_gst']}, {cfg['max_gst']}] s\n")
+            f.write(f"  Vehicle counts: {dict(counts)} (total={total})\n")
+            f.write(f"  Latest GST: {gst:.2f} s\n\n")
+
+
+def write_gst_cache(shared_state):
+    gst_values = [shared_state.get_gst(r) for r in DIR_NAMES]
+    counts_list = [shared_state.get_counts(r) for r in DIR_NAMES]
+    data = {
+        "gst_values": gst_values,
+        "total_counts_list": counts_list
+    }
+    with open(GST_CACHE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def append_traffic_log(road, gst_val, ts_float, ts_str, shared_state):
+    file_exists = os.path.exists(TRAFFIC_LOG)
+    with open(TRAFFIC_LOG, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "timestamp", "direction", "green_start", "green_end",
+                "gst_seconds", "car_count", "truck_count", "bus_count",
+                "motorcycle_count", "bicycle_count"
+            ])
+        counts = shared_state.get_counts(road)
+        writer.writerow([
+            ts_float, road, ts_str, ts_str,
+            round(gst_val, 2),
+            counts.get('car', 0), counts.get('truck', 0),
+            counts.get('bus', 0), counts.get('motorcycle', 0),
+            counts.get('bicycle', 0)
+        ])
+
+
+def on_signal_switch(road, gst_val):
+    global switch_queue
+    now = time.time()
+    ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    switch_queue.append((road, gst_val, now, ts_str))
+
+
+def flush_outputs(shared_state):
+    global switch_queue
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    try:
+        write_full_csv(shared_state)
+        write_gst_summary(shared_state)
+        write_gst_cache(shared_state)
+        for item in switch_queue:
+            append_traffic_log(*item, shared_state)
+        switch_queue.clear()
+    except Exception as e:
+        print(f"Output write error: {e}")
 
 
 def main():
-    video_path   = "video1.mp4"
-    output_dir   = "outputs"
-    os.makedirs(output_dir, exist_ok=True)
-    output_video = os.path.join(output_dir, "tracked_video.mp4")
-    output_gst   = os.path.join(output_dir, "gst_result.txt")
+    print("=" * 60)
+    print("  TRUE REAL-TIME MULTI-ROAD ADAPTIVE TRAFFIC CONTROLLER")
+    print("  Prithivi Chowk, Pokhara — Highest Traffic Intersection")
+    print("  All 4 videos run continuously in parallel.")
+    print("  GST computed dynamically before each signal switch.")
+    print("  Roads: China Pull | Airport | Sabhagriha Chowk | Naya Bazar")
+    print("=" * 60)
 
-    print("Loading YOLOv8s...")
-    model = YOLO('yolov8s.pt')
-    model.conf    = 0.35
-    model.iou     = 0.45
-    model.classes = [1, 2, 3, 5, 7]
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"Error: Cannot open {video_path}")
-        return
+    # 1. Shared thread-safe state
+    shared_state = SharedTrafficState()
 
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps    = cap.get(cv2.CAP_PROP_FPS)
-    print(f"Video: {width}x{height} @ {fps:.1f} FPS")
+    # 2. VideoManager — 4 parallel processing threads
+    print("\n[1/5] Starting VideoManager (parallel YOLO inference on 4 videos)...")
+    vm = VideoManager(shared_state)
+    vm.start()
 
-    # ── YOUR EXACT LINE COORDINATES ─────────────────────────────────────
-    x_pt      = (int(height / 3.5), int(width / 2.5))   # meeting point
-    line1_pt1 = (0, 0)                                   # top-left corner
-    line1_pt2 = x_pt
-    line2_pt1 = (width, height)                          # bottom-right corner
-    line2_pt2 = x_pt
-    # ────────────────────────────────────────────────────────────────────
+    # 3. TrafficSignalController — dynamic GST cycling A→B→C→D
+    print("\n[2/5] Starting TrafficSignalController...")
+    sc = TrafficSignalController(shared_state)
+    sc.on_switch(lambda r, g: on_signal_switch(r, g))
+    sc.start()
 
-    tracker = CentroidTracker(
-        max_disappeared=40,
-        max_distance=120,
-        line1_pt1=line1_pt1, line1_pt2=line1_pt2,
-        line2_pt1=line2_pt1, line2_pt2=line2_pt2,
-        min_movement=40,
-        history_len=20
+    # 4. Let some initial detections accumulate
+    print("\n[3/5] Waiting for initial vehicle detections (3s)...")
+    time.sleep(3)
+
+    # 5. Launch verification display (2x2 grid showing live counting)
+    print("\n[4/5] Opening verification window (2x2 grid with bounding boxes)...")
+    start_display_thread(shared_state)
+
+    # 6. Launch PyGame simulation
+    print("\n[5/5] Starting PyGame simulation with LIVE data...")
+    sim_path = os.path.join(os.path.dirname(__file__), "simulation")
+    sys.path.insert(0, sim_path)
+
+    import simulation as sim_mod
+    from signals import SignalController as VisualSignalController
+
+    visual_sc = VisualSignalController(
+        [12.0, 20.0, 15.0, 15.0],
+        external_controller=sc,
+        shared_state=shared_state
     )
 
-    MAX_DISPLAY = 1280
-    scale = min(MAX_DISPLAY / width, MAX_DISPLAY / height, 1.0)
-    display_w, display_h = int(width * scale), int(height * scale)
-    WIN_NAME = "Vehicle Counter"
-    cv2.namedWindow(WIN_NAME, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WIN_NAME, display_w, display_h)
+    sim = sim_mod.Simulation(
+        detected_data=None,
+        debug=False,
+        gst_values=None,
+        shared_state=shared_state,
+        signal_controller=visual_sc,
+        traffic_controller=sc
+    )
 
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+    # Output writer thread — flushes on signal switches
+    out_lock = threading.Lock()
+    out_running = True
 
-    INFERENCE_SIZE = 640
-    print("Processing... Press 'q' to quit.\n")
+    def output_loop():
+        last_flush = 0
+        while out_running:
+            now = time.time()
+            triggered = len(switch_queue) > 0
+            if triggered and now - last_flush >= 1.0:
+                with out_lock:
+                    flush_outputs(shared_state)
+                last_flush = now
+            time.sleep(0.5)
+        with out_lock:
+            flush_outputs(shared_state)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    out_thread = threading.Thread(target=output_loop, daemon=True)
+    out_thread.start()
 
-        results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
-
-        raw_detections = []
-        for det in results.boxes:
-            cls_id = int(det.cls[0])
-            if cls_id not in CLASS_TO_TYPE:
-                continue
-            vtype = CLASS_TO_TYPE[cls_id]
-            xyxy  = det.xyxy[0].cpu().numpy()
-            c_x   = (xyxy[0] + xyxy[2]) / 2
-            c_y   = (xyxy[1] + xyxy[3]) / 2
-            raw_detections.append((c_x, c_y, vtype, xyxy))
-
-        detections = merge_all_detections(raw_detections, iou_threshold=0.4)
-        tracks     = tracker.update(detections)
-
-        # ── DRAWING ─────────────────────────────────────────────────────
-        draw_frame = frame.copy()
-
-        cv2.line(draw_frame, line1_pt1, line1_pt2, (0, 0, 255), 3)
-        cv2.line(draw_frame, line2_pt1, line2_pt2, (0, 0, 255), 3)
-        cv2.circle(draw_frame, x_pt, 8, (0, 0, 255), -1)
-        cv2.putText(draw_frame, "COUNT LINE",
-                    (x_pt[0] + 10, x_pt[1] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-
-        for track in tracks:
-            track_id, c_x, c_y, vtype, bbox, _ = track
-            color = TYPE_COLORS.get(vtype, (255, 255, 255))
-
-            if bbox is not None:
-                x1, y1, x2, y2 = map(int, bbox)
-                cv2.rectangle(draw_frame, (x1, y1), (x2, y2), color, 3)
-                label = f"ID:{track_id} {vtype}"
-                (tw, th), _ = cv2.getTextSize(
-                    label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-                cv2.rectangle(draw_frame,
-                              (x1, y1 - th - 10), (x1 + tw + 10, y1),
-                              color, -1)
-                cv2.putText(draw_frame, label, (x1 + 5, y1 - 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-            else:
-                cv2.circle(draw_frame, (int(c_x), int(c_y)), 6, color, -1)
-
-            trail = tracker.get_trail(track_id)
-            if len(trail) > 1:
-                pts = np.array(trail, np.int32).reshape((-1, 1, 2))
-                cv2.polylines(draw_frame, [pts], False, color, 2)
-
-        y0 = int(height * 0.05)
-        cv2.putText(draw_frame, "Counts:", (20, y0 - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
-        for vtype, count in tracker.vehicle_counts.items():
-            color = TYPE_COLORS.get(vtype, (255, 255, 255))
-            cv2.putText(draw_frame, f"{vtype}: {count}", (30, y0 + 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)
-            y0 += 40
-
-        live_gst = calculate_gst(tracker.vehicle_counts, num_lanes=1)
-        cv2.putText(draw_frame, f"GST: {live_gst:.1f} s", (20, y0 + 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 255), 3)
-
-        display_frame = cv2.resize(draw_frame, (display_w, display_h))
-        cv2.imshow(WIN_NAME, display_frame)
-        out.write(draw_frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cap.release()
-    out.release()
-    cv2.destroyAllWindows()
-
-    counts    = tracker.vehicle_counts
-    final_gst = calculate_gst(counts, num_lanes=1)
-
-    with open(output_gst, 'w') as f:
-        f.write("Final Vehicle Counts:\n")
-        for vtype, count in counts.items():
-            f.write(f"  {vtype}: {count}\n")
-        f.write(f"\nGreen Signal Time (GST): {final_gst:.2f} seconds\n")
-
-    print("\n=== Processing finished ===")
-    print("Counts:", counts)
-    print(f"Green Signal Time: {final_gst:.2f} sec")
-    print(f"Output saved in '{output_dir}/'")
+    try:
+        # Simulation blocks until window is closed
+        sim.run()
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+    finally:
+        out_running = False
+        sc.stop()
+        vm.stop()
+        time.sleep(1)
+        with out_lock:
+            flush_outputs(shared_state)
+        print("\n=== Final outputs written. System halted. ===")
 
 
 if __name__ == "__main__":
