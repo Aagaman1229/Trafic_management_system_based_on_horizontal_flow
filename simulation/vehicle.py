@@ -9,41 +9,39 @@ class Vehicle:
     # Class-level cache for scaled vehicle images to optimize memory and performance
     images = {}
 
+    variant_lists = {
+        'car': ['car.png', 'car2.png', 'car3.png'],
+        'motorcycle': ['bike.png', 'bike2.png'],
+        'truck': ['truck.png', 'truck2.png'],
+        'bus': ['bus.png'],
+    }
+
     @classmethod
-    def load_image(cls, vtype):
-        """Loads and scales a vehicle image, caching it to prevent redundant disk reads."""
+    def _load_variants(cls, vtype):
+        """Load and cache all image variants for a vehicle type."""
         if vtype in cls.images:
-            return cls.images[vtype]
-        
-        fname = {
-            'car': 'car.png',
-            'motorcycle': 'bike.png',
-            'truck': 'truck.png',
-            'bus': 'bus.png'
-        }.get(vtype)
-        
-        if fname:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            return
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        loaded = []
+        for fname in cls.variant_lists.get(vtype, []):
             path = os.path.join(base_dir, 'assets', fname)
             try:
                 img = pygame.image.load(path).convert_alpha()
-                
-                # --- AUTO-ROTATE SIDEWAYS IMAGES (e.g. bike.png which is wider than tall) ---
                 if img.get_width() > img.get_height():
-                    # Rotate 90 degrees counter-clockwise to orient vertically (head at top)
                     img = pygame.transform.rotate(img, 90)
-                
                 w, h = VEHICLE_SIZES[vtype]
-                # Scale smoothly to target size
                 img = pygame.transform.smoothscale(img, (w, h))
-            except Exception as e:
-                print(f"Warning: Could not load asset {path}: {e}. Using fallback.")
-                img = None
-        else:
-            img = None
-            
-        cls.images[vtype] = img
-        return img
+                loaded.append(img)
+            except Exception:
+                pass
+        cls.images[vtype] = loaded
+
+    @classmethod
+    def load_image(cls, vtype):
+        """Returns a random vehicle image variant for visual dynamism."""
+        cls._load_variants(vtype)
+        variants = cls.images.get(vtype, [])
+        return random.choice(variants) if variants else None
 
     def __init__(self, x, y, vtype, direction, movement, path):
         """

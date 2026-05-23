@@ -1,7 +1,7 @@
 import pygame
 from settings import *
 
-def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehicles):
+def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehicles, cycle_count=0):
     """
     Renders a stunning glassmorphic HUD panel in the top-left corner.
     Displays signal status, computed GST values, vehicle load profiles, and live simulation stats.
@@ -71,9 +71,8 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
     y_offset += 20
 
     # Draw a table-like view for GSTs
-    gst_keys = ['A', 'B', 'C', 'D']
     for i in range(4):
-        rn = ROAD_NAMES_SHORT[gst_keys[i]]
+        rn = ROAD_NAMES_SHORT[DIRECTIONS[i]]
         gst_val = gst_values[i]
         
         sig_state = signal_controller.get_signal_state(i)
@@ -95,9 +94,9 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
     hud_surf.blit(load_label, (20, y_offset))
     y_offset += 20
 
-    short_dirs = ['A', 'B', 'C', 'D']
-    for i, sd in enumerate(short_dirs):
-        counts = initial_counts[sd]
+    for i in range(4):
+        sd = DIRECTIONS[i]
+        counts = initial_counts.get(sd, {})
         count_strs = []
         for vt in ['car', 'motorcycle', 'truck', 'bus']:
             cnt = counts.get(vt, 0)
@@ -123,14 +122,17 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
     # 6. Blit the HUD onto main surface
     surface.blit(hud_surf, (15, 15))
 
-    # Add a separate tiny simulation stats indicator in the top-right corner
-    stats_width = 220
-    stats_height = 40
+    # Add a separate simulation stats indicator in the top-right corner
+    stats_width = 320
+    stats_height = 60
     stats_surf = pygame.Surface((stats_width, stats_height), pygame.SRCALPHA)
     stats_surf.fill((15, 23, 42, 220))
     pygame.draw.rect(stats_surf, (71, 85, 105, 255), (0, 0, stats_width, stats_height), 2)
     
     active_cnt = len(active_vehicles)
     stats_text = font_body.render(f"ACTIVE VEHICLES IN JUNCTION: {active_cnt}", True, (241, 245, 249))
-    stats_surf.blit(stats_text, (12, 11))
+    stats_surf.blit(stats_text, (12, 8))
+
+    cycle_text = font_body.render(f"CYCLE COMPLETED: {cycle_count}", True, (16, 185, 129))
+    stats_surf.blit(cycle_text, (12, 32))
     surface.blit(stats_surf, (SCREEN_WIDTH - stats_width - 15, 15))

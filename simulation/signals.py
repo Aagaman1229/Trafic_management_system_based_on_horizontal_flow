@@ -3,7 +3,7 @@ from settings import DIRECTIONS
 # How many seconds before the current green expires to show orange on the NEXT approach
 ORANGE_PREVIEW_SECONDS = 5.0
 
-ROAD_ORDER = ['A', 'B', 'C', 'D']
+ROAD_ORDER = ['D', 'A', 'B', 'C']
 
 
 class SignalController:

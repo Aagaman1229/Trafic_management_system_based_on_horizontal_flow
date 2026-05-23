@@ -131,9 +131,9 @@ def process_video(video_path, model, time_limit_sec=200):
 
     cap.release()
     total_counts = tracker.vehicle_counts
-    # Use only 2/3 of vehicles for straight traffic (1/3 are turning)
-    straight_counts = {k: int(v * 2/3) for k, v in total_counts.items()}
-    gst = calculate_gst(straight_counts, num_lanes=1)
+    # Straight-going vehicle ratio applied in GST formula
+    straight_ratio = 0.75
+    gst = calculate_gst(total_counts, num_lanes=1, straight_ratio=straight_ratio)
     return total_counts, gst
 
 # ========== 3. Load or compute GST ==========

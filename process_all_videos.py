@@ -12,10 +12,10 @@ from tracking import CentroidTracker
 from gst import calculate_gst
 
 VIDEO_CONFIGS = [
-    {"path": "v1.MOV", "name": "A", "full_name": "China Pull Road", "num_lanes": 4, "min_gst": 12, "max_gst": 44},
-    {"path": "v2.mp4", "name": "B", "full_name": "Airport Road", "num_lanes": 6, "min_gst": 20, "max_gst": 27},
-    {"path": "v3.MOV", "name": "C", "full_name": "Sabhagriha Chowk Road", "num_lanes": 4, "min_gst": 15, "max_gst": 44},
-    {"path": "v4.MOV", "name": "D", "full_name": "Naya Bazar Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28},
+    {"path": "chinapull_road.MOV", "name": "A", "full_name": "China Pull Road", "num_lanes": 6, "min_gst": 15, "max_gst": 44, "straight_ratio": 0.72},
+    {"path": "airport_road.MOV", "name": "B", "full_name": "Airport Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
+    {"path": "sabhagiriha_road.MOV", "name": "C", "full_name": "Sabhagriha Chowk Road", "num_lanes": 4, "min_gst": 12, "max_gst": 44, "straight_ratio": 0.78},
+    {"path": "nayabazar_road.mp4", "name": "D", "full_name": "Naya Bazar Road", "num_lanes": 4, "min_gst": 20, "max_gst": 27, "straight_ratio": 0.6},
 ]
 
 OUTPUT_DIR = "outputs"
@@ -100,7 +100,7 @@ def save_video_cache(video_path, counts, gst):
         json.dump({"counts": counts, "gst": gst}, f)
 
 
-def process_single_video(video_path, model, num_lanes, min_gst, max_gst):
+def process_single_video(video_path, model, num_lanes, min_gst, max_gst, straight_ratio=0.75):
     cached = load_video_cache(video_path)
     if cached is not None:
         print(f"  [CACHED] {video_path} — counts={cached['counts']}, GST={cached['gst']:.2f}s")
@@ -166,7 +166,7 @@ def process_single_video(video_path, model, num_lanes, min_gst, max_gst):
 
     cap.release()
     counts = dict(tracker.vehicle_counts)
-    gst = calculate_gst(counts, num_lanes=num_lanes, min_gst=min_gst, max_gst=max_gst)
+    gst = calculate_gst(counts, num_lanes=num_lanes, min_gst=min_gst, max_gst=max_gst, straight_ratio=straight_ratio)
     print(f"    Done — counts={counts}, GST={gst:.2f}s")
 
     save_video_cache(video_path, counts, gst)
@@ -245,7 +245,7 @@ def write_outputs(results):
         }, f)
     print(f"Cache: {CACHE_FILE}")
 
-    dir_names = ["North", "East", "South", "West"]
+    dir_names = ["East", "South", "West", "North"]
     file_exists = os.path.exists(TRAFFIC_LOG_CSV)
     with open(TRAFFIC_LOG_CSV, 'a', newline='') as f:
         writer = csv.writer(f)
@@ -313,7 +313,8 @@ def main():
             vp, model,
             num_lanes=cfg["num_lanes"],
             min_gst=cfg["min_gst"],
-            max_gst=cfg["max_gst"]
+            max_gst=cfg["max_gst"],
+            straight_ratio=cfg.get("straight_ratio", 0.75)
         )
 
     print("\n" + "=" * 60)

@@ -1,449 +1,306 @@
-\newpage
-\chapter{System Implementation}
+\chapter{Methodology}
 
-This chapter explains how the real-time multi-road adaptive traffic control system is built. The architecture follows a modular, parallel design: video capture, object detection, vehicle tracking, shared thread-safe state, dynamic signal timing, a PyGame intersection simulation, a live verification display, and persistent data output. Each video processing thread operates independently, detecting and counting vehicles on its assigned approach road. The entire system is optimized to run on commodity hardware with a single GPU.
+This chapter describes the design and implementation of the real-time multi-road adaptive traffic control system deployed at \textbf{Prithivi Chowk}, the highest-traffic intersection in Pokhara, Nepal. The system integrates computer vision, parallel video processing, adaptive signal timing, and a PyGame simulation to dynamically manage traffic at this four-way junction, optimized for real-time operation on commodity hardware.
 
-% ------------------------------------------------
-\section{System Design Philosophy}
+% ----------------------------------------
+\section{Product Development Lifecycle}
 
-The implementation prioritized real-time responsiveness, modularity, and accurate vehicle counting under diverse traffic conditions. Instead of relying on expensive roadside sensors, the system uses computer vision to detect and track vehicles from standard video feeds. YOLOv8s was chosen as the detection model for its optimal balance of inference speed and accuracy, enabling four parallel video streams to be processed on a single GPU.
+The development followed an iterative Agile model. Core objectives were defined as real-time parallel video processing for four approach roads, YOLO-based vehicle detection and tracking, dynamic Green Signal Time (GST) calculation using lane-specific configuration, and a PyGame-based intersection simulation.
 
-The architecture uses independent modules for video capture, object detection, centroid tracking, signal control, simulation, and data output. Each module communicates through a thread-safe shared state, minimizing coupling and allowing future replacement of individual components without redesigning the entire system.
+A product backlog was created containing features such as video capture, vehicle counting, centroid-based tracking, GST computation, signal controller logic, data logging, and simulation visualization. Development proceeded in short sprints, with each module tested and integrated incrementally.
 
-% ------------------------------------------------
-\section{Internal Data Flow}
+Continuous integration and iterative refinement ensured the system achieved low latency, high detection accuracy, and realistic traffic behaviour representative of Prithivi Chowk.
 
-The system processes traffic through a parallel pipeline:
+% ----------------------------------------
+\section{Technologies and Development Environment}
 
-\begin{enumerate}
-    \item Four daemon threads each continuously capture frames from one approach video.
-    \item YOLOv8s inference (serialized via a shared model lock) detects vehicles in each frame.
-    \item A CentroidTracker assigns unique IDs and counts vehicles crossing virtual count lines.
-    \item Per-road vehicle counts are written to a thread-safe shared state.
-    \item The Signal Controller reads live counts and computes dynamic Green Signal Time (GST) for the next road immediately before switching.
-    \item The PyGame simulation reads live state and renders a high-fidelity intersection visualization.
-    \item An OpenCV verification window displays a 2×2 grid of all four video feeds with real-time bounding boxes and count overlays.
-    \item Output files (CSV, TXT, JSON) are flushed on each signal switch transition.
-\end{enumerate}
-
-This pipeline minimizes coupling between modules and allows independent operation of video processing, signal timing, and visualization.
-
-% ------------------------------------------------
-\section{Video Capture and Preprocessing}
-
-Live traffic video is captured from four pre-recorded video files, each representing one approach road of the Prithivi Chowk intersection in Pokhara, Nepal:
-
+\subsection{Computer Vision and Object Detection}
 \begin{itemize}
-    \item \textbf{China Pull Road (\texttt{v1.MOV}):} 4 lanes (2 inbound), north approach.
-    \item \textbf{Airport Road (\texttt{v2.mp4}):} 6 lanes (3 inbound), east approach.
-    \item \textbf{Sabhagriha Chowk Road (\texttt{v3.MOV}):} 4 lanes (2 inbound), south approach.
-    \item \textbf{Naya Bazar Road (\texttt{v4.MOV}):} 4 lanes (2 inbound), west approach.
+    \item \textbf{Ultralytics YOLOv8s:} Real-time object detection model used for identifying vehicles. It detects five classes: car, motorcycle, bus, truck, and bicycle.
+    \item \textbf{OpenCV (cv2):} Used for video capture, frame processing, resizing, and annotation (bounding boxes and overlays).
+    \item \textbf{CentroidTracker:} Custom multi-object tracking system using the Hungarian algorithm for centroid association with direction-based filtering (right-to-left movement only).
 \end{itemize}
 
-\subsection{Frame Capture and Skip}
-
-Each video is read frame-by-frame using OpenCV. To reduce computational load, every second frame is processed (frame skip = 2), effectively halving the inference workload while maintaining temporal coverage sufficient for accurate tracking at typical vehicle speeds.
-
-\subsection{Inference Resizing}
-
-Frames are resized to 416×416 pixels for YOLO inference, balancing detection accuracy and processing speed. The original frame dimensions are preserved for display and annotation.
-
-\subsection{Counting Line Geometry}
-
-A virtual counting zone is defined by two converging lines that meet at a focal point derived from the video dimensions. The lines extend from opposite corners of the frame toward the focal point, creating a triangular counting region. Vehicles are counted only when their centroid crosses either of these lines, ensuring direction-consistent counting. The focal point is placed at approximately one-third of the frame height and one-quarter of the frame width, calibrated for the camera perspective of each video.
-
-% ------------------------------------------------
-\section{Object Detection Module}
-
-The detection module uses Ultralytics YOLOv8s, a state-of-the-art single-shot object detector. The model is pre-trained on the COCO dataset and requires no additional fine-tuning.
-
-\subsection{Model Configuration}
-
+\subsection{Signal Timing and GST Calculation}
 \begin{itemize}
-    \item \textbf{Model:} YOLOv8s (small variant) — optimizes inference speed over model size.
-    \item \textbf{Input size:} 416×416 pixels.
-    \item \textbf{Confidence threshold:} 0.35 — balances false positives against missed detections.
-    \item \textbf{Target classes:} COCO classes 1 (bicycle), 2 (car), 3 (motorcycle), 5 (bus), 7 (truck).
-    \item \textbf{Inference device:} CUDA GPU with FP16 half-precision, with automatic CPU/MPS fallback.
+    \item \textbf{GST Engine:} A rule-based adaptive model that computes Green Signal Time using weighted vehicle counts and lane configurations.
+    \item \textbf{Thread-safe shared state:} Implemented using \texttt{threading.Lock} to enable safe concurrent access across multiple video processing threads.
 \end{itemize}
 
-\subsection{Detection Merging}
+\subsection{Simulation and Visualization}
+\begin{itemize}
+    \item \textbf{PyGame:} Used to simulate a realistic multi-lane intersection with vehicle physics, path following, and a HUD interface.
+    \item \textbf{OpenCV HighGUI:} Displays a 2$\times$2 verification grid of live video feeds with detection overlays.
+\end{itemize}
 
-Raw YOLO detections may produce multiple overlapping bounding boxes for the same vehicle. A non-maximum suppression (NMS)-style merge is applied using intersection-over-union (IoU):
+\subsection{Data Output}
+\begin{itemize}
+    \item \textbf{CSV module:} Stores structured traffic logs and signal transitions.
+    \item \textbf{JSON:} Stores GST cache and system state snapshots.
+    \item \textbf{TXT reports:} Human-readable summaries of system performance and traffic statistics.
+\end{itemize}
+
+\subsection{Development Environment}
+\begin{itemize}
+    \item \textbf{Python 3.11}
+    \item \textbf{PyTorch 2.x with CUDA acceleration}
+    \item \textbf{Windows 11}
+    \item \textbf{VS Code}
+\end{itemize}
+
+% ----------------------------------------
+\section{Dataset Collection and Preparation}
+
+The system uses four video streams representing each approach at Prithivi Chowk:
+
+\begin{itemize}
+    \item China Pull Road (\texttt{chinapull\_road.MOV}) — 6 lanes, GST: 15–44 s, straight ratio: 0.72
+    \item Airport Road (\texttt{airport\_road.MOV}) — 4 lanes, GST: 15–28 s, straight ratio: 0.72
+    \item Sabhagriha Chowk Road (\texttt{sabhagiriha\_road.MOV}) — 4 lanes, GST: 12–44 s, straight ratio: 0.78
+    \item Naya Bazar Road (\texttt{nayabazar\_road.mp4}) — 4 lanes, GST: 20–27 s, straight ratio: 0.6
+\end{itemize}
+
+YOLOv8s is used with pre-trained COCO weights, eliminating the need for dataset-specific training.
+
+% ----------------------------------------
+\section{Data Preprocessing}
+
+\subsection{Frame Processing}
+Frames are extracted using OpenCV. Every second frame is processed (frame skip = 2), and resized to 416$\times$416 for inference.
+
+\subsection{Detection Filtering}
+Overlapping detections are merged using an IoU threshold of 0.4:
 
 \[
-\text{IoU} = \frac{\text{Area of Overlap}}{\text{Area of Union}}
+\text{IoU} = \frac{\text{Intersection Area}}{\text{Union Area}}
 \]
 
-Detections with IoU exceeding 0.4 are merged by taking the outer bounds of all candidate boxes, producing a single bounding box per vehicle. This reduces double-counting and produces more stable centroid positions for tracking.
+This reduces duplicate detections of the same vehicle.
 
-\subsection{Thread-Safe Inference}
-
-Because Ultralytics YOLO inference is not inherently thread-safe, all four video processing threads share a single YOLO model instance protected by a \texttt{threading.Lock}. Inference is serialized across threads, while frame I/O, tracking, and count updates proceed concurrently. This design prevents GPU out-of-memory errors while maintaining adequate throughput.
-
-% ------------------------------------------------
-\section{Vehicle Tracking Module}
-
-Each video processing thread maintains its own \texttt{CentroidTracker} instance, allowing independent tracking of vehicles on each road without cross-thread interference.
-
-\subsection{Tracker Design}
-
-The CentroidTracker implements a Hungarian algorithm for associating detections across frames:
-
-\begin{enumerate}
-    \item Compute Euclidean distance matrix between existing tracked centroids and new detection centroids.
-    \item Sort distances in ascending order and greedily assign matches within a 120-pixel radius.
-    \item Unmatched detections are registered as new tracked objects with a unique ID.
-    \item Unmatched tracked objects increment a disappearance counter; those exceeding 40 consecutive frames are removed.
-\end{enumerate}
-
-\subsection{Counting Logic}
-
-A vehicle is counted when three conditions are met:
+\subsection{Counting Strategy}
+A virtual converging count line is used. A vehicle is counted only when:
 \begin{itemize}
-    \item Its centroid crosses one of the two virtual count lines.
-    \item Its direction ratio (proportion of leftward movement steps) exceeds 0.6, ensuring only right-to-left traffic is counted.
-    \item It has been visible for at least 8 frames, filtering transient false detections.
+    \item It crosses the count line,
+    \item Movement direction ratio $> 0.6$,
+    \item Track age $\geq 8$ frames.
 \end{itemize}
 
-Each tracker maintains per-type counts (car, motorcycle, bus, truck, bicycle) that are updated in real time and written to the shared state.
+% ----------------------------------------
+\section{Feature Engineering}
 
-% ------------------------------------------------
-\section{Thread-Safe Shared State}
-
-A central \texttt{SharedTrafficState} object serves as the communication hub between all threads. It stores:
+\subsection{Detection Features}
 \begin{itemize}
-    \item Per-road vehicle counts (dictionaries of type→count).
-    \item Per-road total vehicle counts.
-    \item Current active road and signal states (GREEN, ORANGE, RED).
-    \item Per-road GST values.
-    \item Annotated display frames for the verification window.
+    \item Bounding box coordinates
+    \item Centroid position
+    \item Class label
+    \item Confidence score (threshold: 0.35)
 \end{itemize}
 
-All read and write operations are protected by a single \texttt{threading.Lock}, ensuring consistent data visibility across threads. The shared state follows a producer-consumer pattern: video processing threads produce counts, while the signal controller and simulation consume them.
+\subsection{Tracking Features}
+\begin{itemize}
+    \item Centroid history (20 frames)
+    \item Majority-vote class correction
+    \item Frame persistence tracking
+    \item Minimum displacement threshold (40 px)
+    \item Direction ratio filtering (> 0.6)
+\end{itemize}
 
-% ------------------------------------------------
-\section{Green Signal Time Calculation}
+\subsection{GST Features}
+\begin{itemize}
+    \item Weighted vehicle counts
+    \item Lane configuration per road
+    \item Vehicle-type crossing times
+    \item Min/max GST constraints
+    \item Per-road straight-going vehicle ratio (replaces universal 2/3)
+\end{itemize}
 
-The GST for each road is computed dynamically using a custom formula that accounts for vehicle type, crossing time, lane count, and the Nepal free-left traffic rule.
-
-\subsection{Crossing Times}
-
-Each vehicle type has an empirically determined crossing time based on typical intersection clearance behavior in Nepal:
-
-\begin{table}[H]
-\centering
-\caption{Vehicle crossing times used in GST calculation}
-\label{tab:crossing_times}
-\begin{tabular}{|l|c|}
-\hline
-\textbf{Vehicle Type} & \textbf{Crossing Time (seconds)} \\
-\hline
-Bicycle & 10.0 \\
-Motorcycle / Scooter & 4.5 \\
-Car / Van / Jeep & 5.5 \\
-Bus & 8.0 \\
-Truck / Heavy Vehicle & 11.0 \\
-\hline
-\end{tabular}
-\end{table}
-
-\subsection{GST Formula}
-
-The weighted sum of crossing times is computed as:
+The GST is computed using:
 
 \[
-\text{weighted\_sum} = \sum_{\text{vehicle type}} (\text{count} \times \text{crossing\_time})
+\text{GST} = \max\left(\text{min\_gst},\ \min\left(\text{max\_gst},\ \frac{\text{straight\_ratio} \times \sum (\text{count}_i \times \text{crossing\_time}_i)}{\text{num\_lanes} + 1}\right)\right)
 \]
 
-The GST is then derived using a two-thirds multiplier representing the Nepal free-left rule (one-third of vehicles bypass the signal via the always-open left-turn lane) and a lane-based discharge factor:
+where \texttt{straight\_ratio} is a per-road parameter representing the proportion of vehicles going straight through the intersection.
 
-\[
-\text{GST} = \frac{2}{3} \times \frac{\text{weighted\_sum}}{\text{num\_lanes} + 1}
-\]
+% ----------------------------------------
+\section{Model Selection}
 
-The result is clamped within road-specific minimum and maximum bounds:
+\subsection{YOLOv8s}
+Selected for its balance of speed and accuracy. It runs on GPU with FP16 precision and supports real-time inference.
 
-\[
-\text{GST} = \max(\text{min\_gst}, \min(\text{max\_gst}, \text{GST}))
-\]
+\subsection{Centroid Tracker}
+Uses Euclidean distance matching with a maximum threshold of 120 pixels and a disappearance limit of 40 frames.
 
-The per-road lane counts and GST bounds are configured based on the physical road geometry of Prithivi Chowk:
+% ----------------------------------------
+\section{Evaluation Metrics}
 
-\begin{table}[H]
-\centering
-\caption{Per-road configuration for Prithivi Chowk}
-\label{tab:road_config}
-\begin{tabular}{|l|c|c|c|c|}
-\hline
-\textbf{Road} & \textbf{Video} & \textbf{Total Lanes} & \textbf{Min GST (s)} & \textbf{Max GST (s)} \\
-\hline
-China Pull Road & \texttt{v1.MOV} & 4 & 12 & 44 \\
-Airport Road & \texttt{v2.mp4} & 6 & 20 & 27 \\
-Sabhagriha Chowk Road & \texttt{v3.MOV} & 4 & 15 & 44 \\
-Naya Bazar Road & \texttt{v4.MOV} & 4 & 15 & 28 \\
-\hline
-\end{tabular}
-\end{table}
+\begin{itemize}
+    \item \textbf{Detection quality:} Visual verification using annotated feeds
+    \item \textbf{Tracking accuracy:} Correct count rate and identity stability
+    \item \textbf{System performance:} FPS, latency, and throughput
+    \item \textbf{Signal efficiency:} GST responsiveness and queue adaptation
+\end{itemize}
 
-\subsection{Dynamic Recalculation}
+% ----------------------------------------
+\section{Hyperparameter Tuning}
 
-The GST for each road is recalculated \emph{immediately before} that road turns green, using the latest live accumulated counts from the shared state. This ensures that queue buildup during other roads' green phases directly and proportionally affects the next road's green duration, creating a true adaptive traffic control loop.
+\begin{itemize}
+    \item Confidence threshold: 0.35
+    \item IoU threshold: 0.4
+    \item Frame skip: 2
+    \item Input resolution: 416$\times$416
+    \item Max tracking distance: 120 px
+    \item Max disappearance: 40 frames
+    \item Minimum track length: 8 frames
+    \item Minimum displacement: 40 px
+\end{itemize}
 
-% ------------------------------------------------
-\section{Signal Controller}
+% ----------------------------------------
+\section{System Architecture}
 
-A dedicated daemon thread runs the traffic signal cycle, alternating through roads in the order A→B→C→D (China Pull → Airport → Sabhagriha Chowk → Naya Bazar) in an infinite loop.
+The system is structured as a modular real-time pipeline. Figure~\ref{fig:main_arch} presents the overall architecture, while Figure~\ref{fig:video_processing} details the per-road video processing pipeline.
 
-\subsection{Controller Design}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{figures/main_arch.jpg}
+    \caption{System architecture showing four parallel video processing threads, shared state, signal controller, simulation, and output modules.}
+    \label{fig:main_arch}
+\end{figure}
 
-The \texttt{TrafficSignalController} operates as follows:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/video_processing.jpg}
+    \caption{Parallel video processing pipeline for each road: frame capture, YOLO inference, detection merging, centroid tracking, and count update.}
+    \label{fig:video_processing}
+\end{figure}
+
+The pipeline consists of:
 \begin{enumerate}
-    \item A 50 ms tick loop decrements the active green phase timer.
-    \item When the timer reaches zero, the next road's GST is computed using live counts.
-    \item The signal state for all roads is updated in the shared state.
-    \item The new green phase begins with the computed GST.
+    \item \textbf{Video Processing Layer:} Four parallel threads perform YOLO detection and centroid tracking.
+    \item \textbf{Shared State:} Thread-safe container storing counts, signal states, and GST values.
+    \item \textbf{Signal Controller:} Computes GST dynamically before each phase switch.
+    \item \textbf{Simulation Layer:} PyGame-based intersection visualization (see Figure~\ref{fig:main_arch}).
+    \item \textbf{Verification Layer:} OpenCV-based 2$\times$2 live feed display.
+    \item \textbf{Output Layer:} Logs all traffic and signal events.
 \end{enumerate}
 
-A 5-second orange preview is shown on the next approach before it turns green, carved out of the current phase's remaining time (not added on top). This provides a visual heads-up to drivers without increasing cycle length.
+% ----------------------------------------
+\section{Threading and Concurrency}
 
-\subsection{Signal State Mapping}
+The system uses four video threads, one signal controller thread, one output logger thread, and a main simulation thread.
 
-Each road's signal state is determined as follows:
+A producer-consumer model is used:
 \begin{itemize}
-    \item Active green road → \texttt{GREEN}
-    \item Next road in cycle when remaining time ≤ 5 seconds → \texttt{ORANGE}
-    \item All other roads → \texttt{RED}
+    \item Video threads produce vehicle counts
+    \item Signal controller consumes counts to compute GST
+    \item Simulation consumes shared state for visualization
 \end{itemize}
 
-% ------------------------------------------------
-\section{PyGame Simulation}
+Thread safety is ensured using locks for both shared state and YOLO inference.
 
-A high-fidelity PyGame-based visualization renders the Prithivi Chowk intersection in real time, reading live vehicle counts and signal states from the shared state.
-
-\subsection{Intersection Rendering}
-
-The simulation draws a four-way intersection with:
-\begin{itemize}
-    \item \textbf{Variable lane counts:} Per-approach lane configurations (China Pull/Airport/Sabhagriha Chowk/Naya Bazar) with appropriate road widths, lane markings, and center lines.
-    \item \textbf{Zebra crossings:} Scaled to match the inbound lane width of each approach.
-    \item \textbf{Stop lines:} Positioned on all waiting lanes except the free-left-turn lane.
-    \item \textbf{Glowing traffic lights:} RED/ORANGE/GREEN signal lamps at each corner, synchronized with the live signal controller.
-    \item \textbf{Road name labels:} Each approach is labeled with its real-world road name.
-\end{itemize}
-
-\subsection{Vehicle Physics}
-
-Each vehicle in the simulation follows a waypoint-based path with physics:
-\begin{itemize}
-    \item \textbf{Path generation:} Dynamic lane offsets computed from per-approach lane counts. Three movement types (left-turn, straight, right-turn) each have geometrically correct arc paths.
-    \item \textbf{Acceleration and deceleration:} Vehicles accelerate toward a maximum speed of 180 px/s and decelerate for stops and turns.
-    \item \textbf{Collision avoidance:} Same-lane and cross-lane safe-distance enforcement prevents overlapping vehicles.
-    \item \textbf{Signal compliance:} Vehicles stop on RED and ORANGE; left-turning vehicles bypass the signal (Nepal free-left rule).
-\end{itemize}
-
-\subsection{Vehicle Spawning}
-
-Vehicles are spawned continuously based on live detection counts:
-\begin{itemize}
-    \item \textbf{Class-basis lane assignment:} The spawner cycles through left/straight/right lanes per vehicle class, ensuring proportional lane distribution.
-    \item \textbf{Spawn interval:} Dynamically computed from the total detected vehicle count for each approach, with organic randomness added.
-    \item \textbf{Safety check:} A new vehicle is only spawned if the entry area is clear of other vehicles.
-\end{itemize}
-
-\subsection{Glassmorphic HUD}
-
-A translucent HUD panel overlays the simulation, displaying:
-\begin{itemize}
-    \item Current active phase with remaining time.
-    \item Per-road GST values with color-coded signal states.
-    \item Per-road vehicle detection breakdowns by type.
-    \item Total active vehicle count in the junction.
-\end{itemize}
-
-% ------------------------------------------------
-\section{Live Verification Display}
-
-A separate OpenCV window provides real-time visual feedback of the detection and counting process, arranged as a 2×2 grid of all four video feeds.
-
-\subsection{Display Layout}
-
-Each quadrant of the grid shows one approach road's annotated video stream at 480×360 pixels. Road name labels are rendered at the bottom of each quadrant for immediate visual reference.
-
-\subsection{Frame Annotation}
-
-Each frame is annotated by the video processing thread before being stored in the shared state:
-\begin{itemize}
-    \item \textbf{Bounding boxes:} Colored rectangles (green for car, yellow for truck, blue for bus, magenta for motorcycle) drawn around each detected vehicle.
-    \item \textbf{Track IDs:} Unique identification numbers overlaid on each bounding box.
-    \item \textbf{Count lines:} Red converging lines indicating the virtual counting zone.
-    \item \textbf{Trail visualization:} Tracked centroid history drawn as polylines.
-    \item \textbf{Count overlay:} Large high-contrast text on dark backgrounds showing per-type vehicle counts with color-coded type badges and a prominent green TOTAL badge.
-    \item \textbf{Title bar:} Road name header at the top of each frame.
-\end{itemize}
-
-% ------------------------------------------------
-\section{Data Output and Logging}
-
-The system generates structured output files on each signal switch transition, providing a persistent record of traffic conditions and signal timing decisions.
-
-\subsection{Output Files}
-
-\begin{itemize}
-    \item \texttt{outputs/full\_traffic\_data.csv}: Timestamped per-road record containing counts per vehicle type, total vehicles, lane count, computed GST, and active signal state, with road names included.
-    \item \texttt{outputs/gst\_summary.txt}: Human-readable report with lane configuration, min/max GST bounds, latest computed GST, and per-type vehicle counts for each road.
-    \item \texttt{outputs/gst\_cache.json}: Machine-readable JSON structure with GST values and counts lists for all four roads, used by the standalone simulation mode.
-    \item \texttt{outputs/traffic\_log.csv}: Append-only CSV log of each signal switch event, recording direction, green start/end timestamps, GST duration, and vehicle counts.
-\end{itemize}
-
-\subsection{Output Thread}
-
-A dedicated daemon thread monitors a queue of signal switch events and flushes outputs to disk. This design prevents I/O operations from blocking the real-time processing pipeline.
-
-% ------------------------------------------------
-\section{Orchestration and Execution}
-
-The main orchestration script (\texttt{main.py}) coordinates all system components:
+% ----------------------------------------
+\section{System Workflow}
 
 \begin{enumerate}
-    \item Initialize \texttt{SharedTrafficState} (thread-safe data container).
-    \item Start \texttt{VideoManager} — spawns 4 daemon threads, one per approach video.
-    \item Start \texttt{TrafficSignalController} — daemon thread cycling A→B→C→D with dynamic GST.
-    \item Wait 3 seconds for initial detections to accumulate.
-    \item Launch OpenCV verification display thread (2×2 grid).
-    \item Launch PyGame simulation in the main thread (60 FPS game loop).
-    \item Start output writer thread for periodic disk flushing.
+    \item System initializes and starts four video threads.
+    \item First phase: China Pull Road is set to GREEN.
+    \item Remaining roads accumulate vehicles simultaneously.
+    \item When phase ends, GST is computed for next road using per-road straight ratio.
+    \item Signal cycles continuously through all four roads; each full cycle (all four roads) increments a cycle counter visible in the simulation HUD.
+    \item Simulation and verification windows update in real time.
+    \item Logs are written at each signal transition.
 \end{enumerate}
 
-Because all video processing, signal control, and display threads are daemon threads, they automatically terminate when the main PyGame window is closed.
-
-% ------------------------------------------------
-\section{Resource Optimization Techniques}
-
-Several optimizations were implemented to ensure efficient execution on consumer hardware:
+% ----------------------------------------
+\section{Real-Time Detection and Optimization}
 
 \begin{itemize}
-    \item \textbf{Frame skip (2):} Halves inference workload without missing vehicles.
-    \item \textbf{Inference size (416):} Reduces per-frame processing time compared to native resolution.
-    \item \textbf{Shared YOLO model lock:} Single GPU model shared across 4 threads, preventing OOM errors.
-    \item \textbf{FP16 half-precision:} Accelerates GPU inference with negligible accuracy loss.
-    \item \textbf{Thread-safe shared state:} Single lock for all inter-thread communication, avoiding complex synchronization.
-    \item \textbf{Daemon threads:} Auto-termination eliminates explicit shutdown coordination.
-    \item \textbf{Separate output thread:} Disk I/O does not block the real-time pipeline.
-    \item \textbf{Lightweight simulation physics:} Simple kinematic model with delta-time integration.
+    \item Frame skipping reduces computational load.
+    \item YOLO inference is GPU-accelerated with FP16 precision.
+    \item Independent trackers prevent cross-road interference.
+    \item Noise is reduced using movement, direction, and persistence filters.
 \end{itemize}
 
-% ------------------------------------------------
-\section{Algorithmic Summary}
+% ----------------------------------------
+\section{User Interface Design}
 
-The real-time traffic control pipeline is summarized in Algorithm~\ref{alg:pipeline}.
+\subsection{PyGame Simulation}
+A multi-lane intersection is rendered with:
+\begin{itemize}
+    \item Realistic road geometry
+    \item Traffic light synchronization
+    \item Vehicle physics and collision avoidance
+    \item HUD displaying GST, vehicle counts, and cycle counter
+    \item Nepal free-left rule implementation
+\end{itemize}
 
-\begin{algorithm}[H]
-\caption{Real-Time Adaptive Traffic Control Pipeline}
-\label{alg:pipeline}
-\begin{algorithmic}[1]
-\State Initialize shared state, video manager, signal controller
-\State Start 4 video processing threads (parallel)
-\While{simulation is running}
-    \For{each approach road in parallel}
-        \State Capture next frame from video
-        \If{frame count mod 2 = 0}
-            \State Acquire YOLO model lock
-            \State Run YOLOv8s inference at 416×416
-            \State Release model lock
-            \State Merge overlapping detections (IoU threshold 0.4)
-            \State Update centroid tracker with new detections
-            \State Compute per-type vehicle counts
-            \State Write counts to shared state
-            \State Annotate frame with bounding boxes and counts
-            \State Store annotated frame in shared state
-        \EndIf
-    \EndFor
-    \State Signal controller tick (50 ms):
-    \State \hspace{\algorithmicindent} Decrement active phase timer
-    \State \hspace{\algorithmicindent} \If{timer expired}
-        \State \hspace{\algorithmicindent} Compute GST for next road using live counts
-        \State \hspace{\algorithmicindent} Switch active road, update signal states
-        \State \hspace{\algorithmicindent} Queue output flush event
-    \State \hspace{\algorithmicindent} \EndIf
-    \State Simulation tick (60 FPS):
-    \State \hspace{\algorithmicindent} Read live state from shared state
-    \State \hspace{\algorithmicindent} Spawn vehicles based on detection counts
-    \State \hspace{\algorithmicindent} Update vehicle physics and collisions
-    \State \hspace{\algorithmicindent} Render intersection, vehicles, signals, HUD
-\EndWhile
-\end{algorithmic}
-\end{algorithm}
+\subsection{Verification Window}
+A 2$\times$2 OpenCV grid shows:
+\begin{itemize}
+    \item Live detection results
+    \item Bounding boxes and class labels
+    \item Track IDs and movement paths
+    \item Count line visualization
+\end{itemize}
 
-% ------------------------------------------------
+% ----------------------------------------
+\section{Data Output}
+
+\begin{itemize}
+    \item \texttt{full\_traffic\_data.csv} — Detailed traffic logs
+    \item \texttt{gst\_summary.txt} — Human-readable GST report
+    \item \texttt{gst\_cache.json} — Simulation input data
+    \item \texttt{traffic\_log.csv} — Signal transition logs
+\end{itemize}
+
+% ----------------------------------------
 \section{Deployment}
 
-The system is organized as a single project directory and requires the following dependencies installed in the Python environment: \texttt{ultralytics}, \texttt{opencv-python}, \texttt{pygame}, \texttt{numpy}, \texttt{scipy}, and \texttt{torch} (with CUDA support recommended).
-
-\subsection{Hardware Requirements}
-
+The system runs using:
 \begin{itemize}
-    \item \textbf{Minimum:} x86-64 CPU with 8 GB RAM, NVIDIA GPU with 4+ GB VRAM (for 4 parallel YOLO streams).
-    \item \textbf{Recommended:} NVIDIA RTX 3060 or better, 16 GB RAM, SSD storage.
-    \item \textbf{Storage:} Approximately 500 MB for code, models, and outputs.
+    \item Python 3.11 environment
+    \item PyTorch with CUDA support
+    \item OpenCV, PyGame, Ultralytics YOLO
 \end{itemize}
 
-\subsection{Execution}
-
-The system is started from the project root:
-
+Execution command:
 \begin{verbatim}
 python main.py
 \end{verbatim}
 
-This launches all processing threads, the verification window, and the PyGame simulation. A standalone simulation mode is also available using cached data:
+% ----------------------------------------
+\section*{Crossing Times Table}
 
-\begin{verbatim}
-python simulation/main.py
-\end{verbatim}
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Vehicle Type} & \textbf{Crossing Time (s)} \\
+\hline
+Bicycle & 4.5 \\
+Motorcycle & 4.5 \\
+Car / Van / Jeep & 5.5 \\
+Bus & 8.0 \\
+Truck & 11.0 \\
+\hline
+\end{tabular}
+\caption{Vehicle crossing times used in GST calculation}
+\end{table}
 
-\subsection{Video Files}
+% ----------------------------------------
+\section*{Road Configuration Table}
 
-Four video files are required at the project root:
-\begin{itemize}
-    \item \texttt{v1.MOV} — China Pull Road (north approach)
-    \item \texttt{v2.mp4} — Airport Road (east approach)
-    \item \texttt{v3.MOV} — Sabhagriha Chowk Road (south approach)
-    \item \texttt{v4.MOV} — Naya Bazar Road (west approach)
-\end{itemize}
-
-If any video file is missing, the corresponding processing thread is skipped, and the system continues with the remaining videos.
-
-% ------------------------------------------------
-\section{Testing and Validation}
-
-The system was validated through component tests, integration testing, and performance benchmarks.
-
-\subsection{Detection Accuracy}
-
-YOLOv8s pre-trained COCO weights provide standard mAP metrics for vehicle classes. Detection quality was assessed qualitatively via the verification display window, where bounding boxes and class labels were visually confirmed against the live video feed for all four approaches.
-
-\subsection{Tracking Accuracy}
-
-The centroid tracker was evaluated on:
-\begin{itemize}
-    \item \textbf{Correct count rate:} Vehicles crossing the count line were correctly counted in over 95\% of cases during peak traffic.
-    \item \textbf{False positive rate:} Non-vehicle objects (shadows, debris) rarely triggered false counts due to the minimum movement threshold (40 pixels) and direction ratio filter (0.6).
-    \item \textbf{Identity switches:} Track ID reassignments occurred primarily during occlusion events but did not affect the aggregate count.
-\end{itemize}
-
-\subsection{Signal Timing Responsiveness}
-
-The dynamic GST adaptation was tested by observing signal behavior under varying traffic loads. When a road accumulated a large queue during other roads' green phases, its GST increased proportionally on the next cycle, demonstrating true adaptive behavior.
-
-\subsection{Performance Benchmarks}
-
-\begin{itemize}
-    \item \textbf{Inference latency:} Approximately 15–30 ms per frame on an NVIDIA RTX 3060 GPU.
-    \item \textbf{Frame throughput:} All four videos processed at an effective 15+ FPS each (after frame skip of 2).
-    \item \textbf{Simulation frame rate:} Stable 60 FPS in the PyGame visualization.
-    \item \textbf{CPU utilization:} Below 30\% on a modern multi-core processor (GPU handles inference).
-    \item \textbf{Memory consumption:} Approximately 2 GB for YOLO model, tracking state, and display buffers.
-\end{itemize}
-
-The results confirm that a computer-vision-based adaptive traffic control system can operate effectively on consumer hardware, providing real-time responsiveness and accurate vehicle counting across four simultaneous approach roads.
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Road} & \textbf{Video} & \textbf{Lanes} & \textbf{Min GST} & \textbf{Max GST} & \textbf{Straight Ratio} \\
+\hline
+China Pull & \texttt{chinapull\_road.MOV} & 6 & 15 & 44 & 0.72 \\
+Airport Road & \texttt{airport\_road.MOV} & 4 & 15 & 28 & 0.72 \\
+Sabhagriha Chowk & \texttt{sabhagiriha\_road.MOV} & 4 & 12 & 44 & 0.78 \\
+Naya Bazar & \texttt{nayabazar\_road.mp4} & 4 & 20 & 27 & 0.6 \\
+\hline
+\end{tabular}
+\caption{Road configuration and straight-going ratios for Prithivi Chowk intersection}
+\end{table}

@@ -27,10 +27,10 @@ ROAD_FULL_NAMES = {
 }
 
 ROAD_CONFIG_MAP = {
-    'A': {"num_lanes": 4, "min_gst": 12, "max_gst": 44},
-    'B': {"num_lanes": 6, "min_gst": 20, "max_gst": 27},
-    'C': {"num_lanes": 4, "min_gst": 15, "max_gst": 44},
-    'D': {"num_lanes": 4, "min_gst": 15, "max_gst": 28},
+    'A': {"num_lanes": 6, "min_gst": 15, "max_gst": 44, "straight_ratio": 0.72},
+    'B': {"num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
+    'C': {"num_lanes": 4, "min_gst": 12, "max_gst": 44, "straight_ratio": 0.78},
+    'D': {"num_lanes": 4, "min_gst": 20, "max_gst": 27, "straight_ratio": 0.6},
 }
 
 switch_queue = []
@@ -172,7 +172,7 @@ def main():
     from signals import SignalController as VisualSignalController
 
     visual_sc = VisualSignalController(
-        [12.0, 20.0, 15.0, 15.0],
+        [15.0, 12.0, 20.0, 15.0],
         external_controller=sc,
         shared_state=shared_state
     )

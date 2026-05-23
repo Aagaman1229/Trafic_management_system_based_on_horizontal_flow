@@ -1,9 +1,11 @@
+import random
+
 # Window setup
 SCREEN_WIDTH = 1600
 SCREEN_HEIGHT = 900
 FPS = 60
 
-# Road geometry (6-lane 2-way road, 3 lanes in each direction)
+# Road geometry (6-lane 2-way road for all approaches)
 LANE_WIDTH = 30
 ROAD_WIDTH = LANE_WIDTH * 6  # 180 pixels (3 lanes each way)
 INTERSECTION_SIZE = 180       # Size of central box
@@ -50,8 +52,8 @@ ACCELERATION = 140.0      # Pixels per second^2
 DECELERATION = 340.0      # Pixels per second^2 (increased responsiveness)
 SAFE_DISTANCE = 80.0      # Pixels of safe following gap (greater than braking distance of 57px)
 
-# Direction configurations
-DIRECTIONS = ['A', 'B', 'C', 'D']  # A=North, B=East, C=South, D=West
+# Direction configurations: D=North (top→bottom), A=East (right→left), B=South (bottom→top), C=West (left→right)
+DIRECTIONS = ['D', 'A', 'B', 'C']
 
 # Real-world road names (Prithivi Chowk, Pokhara — highest-traffic intersection)
 ROAD_NAMES = {
@@ -68,27 +70,29 @@ ROAD_NAMES_SHORT = {
     'D': 'Naya Bazar',
 }
 
-# Per-approach lane count (inbound lanes per direction, i.e. vehicles coming toward intersection)
-# Road A (China Pull Road): 4 total = 2 inbound + 2 outbound
-# Road B (Airport Road): 6 total = 3 inbound + 3 outbound
-# Road C (Sabhagriha Chowk Road): 4 total = 2 inbound + 2 outbound
-# Road D (Naya Bazar Road): 4 total = 2 inbound + 2 outbound
+# Per-road straight-going vehicle ratio (replaces universal 2/3)
+STRAIGHT_RATIOS = {
+    'A': 0.72,
+    'B': 0.72,
+    'C': 0.78,
+    'D': 0.6,
+}
 
+# All roads use 3 inbound lanes (left/straight/right) in simulation to prevent blocking
 APPROACH_LANES = {
-    'A': 2,
+    'A': 3,
     'B': 3,
-    'C': 2,
-    'D': 2,
+    'C': 3,
+    'D': 3,
 }
 
 def get_lane_offset(direction_idx, movement):
     """Return lane center offset (px from road center line) for a given approach and movement type.
     
-    For N inbound lanes:
-      Lane 0 (closest to center)  → Right Turn   → offset = LANE_WIDTH * 0.5 = 15
-      Lane 1                      → Straight      → offset = LANE_WIDTH * 1.5 = 45
-      Lane 2 (farthest from center)→ Left Turn     → offset = LANE_WIDTH * 2.5 = 75
-    When N < 3, left-turn and straight share the outermost lane.
+    Each road has 3 inbound lanes:
+      Lane 0 (closest to center)  → Right Turn + Straight   → offset = LANE_WIDTH * 0.5 = 15
+      Lane 1                      → Straight                → offset = LANE_WIDTH * 1.5 = 45
+      Lane 2 (farthest from center)→ Left Turn               → offset = LANE_WIDTH * 2.5 = 75
     """
     dir_char = DIRECTIONS[direction_idx]
     n_lanes = APPROACH_LANES[dir_char]
@@ -96,7 +100,7 @@ def get_lane_offset(direction_idx, movement):
     if movement == 'right':
         lane_idx = 0
     elif movement == 'straight':
-        lane_idx = min(1, n_lanes - 1)
+        lane_idx = random.choice([0, 1])
     else:  # left
         lane_idx = min(2, n_lanes - 1)
     

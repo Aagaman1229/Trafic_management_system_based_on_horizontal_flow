@@ -13,6 +13,7 @@ class SharedTrafficState:
         self._signal_states = {'A': 'GREEN', 'B': 'RED', 'C': 'RED', 'D': 'RED'}
         self._gst_values = {'A': 12.0, 'B': 20.0, 'C': 15.0, 'D': 15.0}
         self._frames = {'A': None, 'B': None, 'C': None, 'D': None}
+        self._cycle_count = 0
         self._running = True
 
     # --- Counts ---
@@ -85,6 +86,16 @@ class SharedTrafficState:
     def get_all_frames(self):
         with self._lock:
             return {r: self._frames.get(r) for r in ['A', 'B', 'C', 'D']}
+
+    # --- Cycle count ---
+
+    def set_cycle_count(self, count):
+        with self._lock:
+            self._cycle_count = count
+
+    def get_cycle_count(self):
+        with self._lock:
+            return self._cycle_count
 
     # --- Lifecycle ---
 

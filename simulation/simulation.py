@@ -39,7 +39,7 @@ class Simulation:
         elif detected_data is not None:
             self.gst_values = self._compute_initial_gsts()
         else:
-            self.gst_values = [12.0, 20.0, 15.0, 15.0]
+            self.gst_values = [15.0, 12.0, 20.0, 15.0]
 
         # 2. Initialize Signal Controller (use external if provided)
         if signal_controller is not None:
@@ -87,7 +87,8 @@ class Simulation:
         for d, direction_char in enumerate(DIRECTIONS):
             counts = self._get_counts(direction_char)
             num_lanes = APPROACH_LANES.get(direction_char, 1)
-            gst = calculate_gst(counts, num_lanes=num_lanes)
+            straight_ratio = STRAIGHT_RATIOS.get(direction_char, 0.75)
+            gst = calculate_gst(counts, num_lanes=num_lanes, straight_ratio=straight_ratio)
             gsts.append(gst)
         return gsts
 
@@ -190,6 +191,15 @@ class Simulation:
 
         return path
 
+    def _choose_movement(self, dir_char):
+        """Pick movement weighted by per-road straight ratio."""
+        sr = STRAIGHT_RATIOS.get(dir_char, 0.75)
+        r = random.random()
+        if r < sr:
+            return 'straight'
+        remaining = 1.0 - sr
+        return 'left' if r < sr + remaining / 2 else 'right'
+
     def _spawn_initial_queues(self):
         """Spawns a visible queue of exactly 5 vehicles per approach at startup, using dynamic lane offsets."""
         cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
@@ -208,7 +218,8 @@ class Simulation:
                 vtype_pool.extend(vtype_pool)
 
             rand_off = random.uniform(0, VEHICLE_SIZES['car'][1])
-            offsets = {'left': 115.0 + rand_off, 'straight': 115.0 + rand_off, 'right': 115.0 + rand_off}
+            left_offset = 200.0  # left-turn queue starts behind straight/right
+            offsets = {'left': left_offset + rand_off, 'straight': 115.0 + rand_off, 'right': 115.0 + rand_off}
 
             random.shuffle(vtype_pool)
             approach_spawn_counts = {'car': 0, 'motorcycle': 0, 'truck': 0, 'bus': 0}
@@ -216,7 +227,7 @@ class Simulation:
             for idx in range(5):
                 vtype = vtype_pool[idx]
                 c_idx = approach_spawn_counts[vtype]
-                movement = 'left' if c_idx % 3 == 0 else ('straight' if c_idx % 3 == 1 else 'right')
+                movement = self._choose_movement(dir_char)
                 approach_spawn_counts[vtype] += 1
 
                 lane_off = get_lane_offset(d, movement)
@@ -280,9 +291,7 @@ class Simulation:
 
         vtype = random.choice(vtype_pool)
 
-        c_idx = self.class_spawn_counts[d][vtype]
-        movement = 'left' if c_idx % 3 == 0 else ('straight' if c_idx % 3 == 1 else 'right')
-        self.class_spawn_counts[d][vtype] += 1
+        movement = self._choose_movement(dir_char)
 
         cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
         lane_off = get_lane_offset(d, movement)
@@ -360,11 +369,13 @@ class Simulation:
             # Live display data for HUD
             if self.shared_state is not None:
                 hud_counts = self.shared_state.get_all_counts()
-                hud_gst = [self.shared_state.get_gst(r) for r in ['A', 'B', 'C', 'D']]
+                hud_gst = [self.shared_state.get_gst(r) for r in DIRECTIONS]
+                cycle_count = self.shared_state.get_cycle_count()
             else:
                 hud_counts = self.detected_data if self.detected_data else {}
-                hud_gst = self.gst_values if self.gst_values else [15.0, 20.0, 15.0, 15.0]
-            draw_hud(self.screen, self.signal_controller, hud_counts, hud_gst, self.vehicles)
+                hud_gst = self.gst_values if self.gst_values else [15.0, 12.0, 20.0, 15.0]
+                cycle_count = 0
+            draw_hud(self.screen, self.signal_controller, hud_counts, hud_gst, self.vehicles, cycle_count)
             
             pygame.display.flip()
 
