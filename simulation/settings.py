@@ -50,7 +50,7 @@ VEHICLE_SIZES = {
 MAX_SPEED = 180.0         # Pixels per second
 ACCELERATION = 140.0      # Pixels per second^2
 DECELERATION = 340.0      # Pixels per second^2 (increased responsiveness)
-SAFE_DISTANCE = 80.0      # Pixels of safe following gap (greater than braking distance of 57px)
+SAFE_DISTANCE = 60.0      # Pixels of safe following gap (tight but safe — braking distance is ~48px)
 
 # Direction configurations: D=North (top→bottom), A=East (right→left), B=South (bottom→top), C=West (left→right)
 DIRECTIONS = ['D', 'A', 'B', 'C']
@@ -86,25 +86,44 @@ APPROACH_LANES = {
     'D': 3,
 }
 
-def get_lane_offset(direction_idx, movement):
+def get_lane_offset(direction_idx, movement, lane_idx=None):
     """Return lane center offset (px from road center line) for a given approach and movement type.
     
-    Each road has 3 inbound lanes:
-      Lane 0 (closest to center)  → Right Turn + Straight   → offset = LANE_WIDTH * 0.5 = 15
-      Lane 1                      → Straight                → offset = LANE_WIDTH * 1.5 = 45
-      Lane 2 (farthest from center)→ Left Turn               → offset = LANE_WIDTH * 2.5 = 75
+    Nepal left-hand traffic — Each approach has 3 inbound lanes (driver's perspective, left→right):
+      Lane 0 (outermost, kerb side, farthest from centre)  → LEFT turn only (free-flowing, offset = 75)
+      Lane 1 (middle)                                       → STRAIGHT only          (offset = 45)
+      Lane 2 (innermost, median side, closest to centre)   → STRAIGHT + RIGHT turn  (offset = 15)
+    
+    When `lane_idx` is provided, uses it directly instead of random choice.
     """
     dir_char = DIRECTIONS[direction_idx]
     n_lanes = APPROACH_LANES[dir_char]
     
-    if movement == 'right':
+    if lane_idx is not None:
+        pass
+    elif movement == 'left':
         lane_idx = 0
     elif movement == 'straight':
-        lane_idx = random.choice([0, 1])
-    else:  # left
-        lane_idx = min(2, n_lanes - 1)
+        lane_idx = random.choice([1, 2])
+    else:  # right
+        lane_idx = 2
     
-    return LANE_WIDTH * (lane_idx + 0.5)
+    # Reversed mapping: Lane 0 → outermost, Lane 2 → innermost
+    return LANE_WIDTH * (n_lanes - lane_idx - 0.5)
+
+def get_lane_index(direction_idx, movement, lane_idx=None):
+    """Return lane index only (0, 1, or 2) for a given approach and movement."""
+    dir_char = DIRECTIONS[direction_idx]
+    n_lanes = APPROACH_LANES[dir_char]
+    
+    if lane_idx is not None:
+        return lane_idx
+    if movement == 'left':
+        return 0
+    elif movement == 'straight':
+        return random.choice([1, 2])
+    else:
+        return 2
 
 
 def max_lane_offset(direction_idx):

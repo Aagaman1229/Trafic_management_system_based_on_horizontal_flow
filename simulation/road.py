@@ -52,9 +52,18 @@ def draw_road(surface, signal_controller):
             ey = min(int(y2), sy + dash_len)
             pygame.draw.line(surface, COLOR_MARKING, (x, sy), (x, ey), 1)
 
+    def _solid_vert(x, y1, y2):
+        pygame.draw.line(surface, (200, 200, 200), (x, y1), (x, y2), 2)
+
+    def _solid_horiz(y, x1, x2):
+        pygame.draw.line(surface, (200, 200, 200), (x1, y), (x2, y), 2)
+
     # North arm (y: 0 to cy - isect_half)
     n_y1, n_y2 = 0, cy - isect_half
-    for i in range(1, n_in[0]):       # Southbound (east side, x > cx)
+    # Lane 2 (inner) / Lane 1 (middle) divider
+    if n_in[0] >= 2:
+        _dash_vert(cx + LANE_WIDTH, n_y1, n_y2)
+    for i in range(2, n_in[0]):       # Lane 1 / Lane 0 (outer, free-flow left) divider
         _dash_vert(cx + i * LANE_WIDTH, n_y1, n_y2)
     for i in range(1, _outbound_lanes(0)):  # Northbound (west side, x < cx)
         _dash_vert(cx - i * LANE_WIDTH, n_y1, n_y2)
@@ -63,12 +72,18 @@ def draw_road(surface, signal_controller):
     s_y1, s_y2 = cy + isect_half, SCREEN_HEIGHT
     for i in range(1, _outbound_lanes(2)):  # Southbound (east side)
         _dash_vert(cx + i * LANE_WIDTH, s_y1, s_y2)
-    for i in range(1, n_in[2]):       # Northbound (west side)
+    # Lane 2 (inner) / Lane 1 (middle) divider
+    if n_in[2] >= 2:
+        _dash_vert(cx - LANE_WIDTH, s_y1, s_y2)
+    for i in range(2, n_in[2]):       # Lane 1 / Lane 0 (outer, free-flow left) divider
         _dash_vert(cx - i * LANE_WIDTH, s_y1, s_y2)
 
     # West arm (x: 0 to cx - isect_half)
     w_x1, w_x2 = 0, cx - isect_half
-    for i in range(1, n_in[3]):       # Eastbound (north side, y < cy)
+    # Lane 2 (inner) / Lane 1 (middle) divider
+    if n_in[3] >= 2:
+        _dash_horiz(cy - LANE_WIDTH, w_x1, w_x2)
+    for i in range(2, n_in[3]):       # Lane 1 / Lane 0 (outer, free-flow left) divider
         _dash_horiz(cy - i * LANE_WIDTH, w_x1, w_x2)
     for i in range(1, _outbound_lanes(3)):  # Westbound (south side, y > cy)
         _dash_horiz(cy + i * LANE_WIDTH, w_x1, w_x2)
@@ -77,7 +92,10 @@ def draw_road(surface, signal_controller):
     e_x1, e_x2 = cx + isect_half, SCREEN_WIDTH
     for i in range(1, _outbound_lanes(1)):  # Eastbound (north side)
         _dash_horiz(cy - i * LANE_WIDTH, e_x1, e_x2)
-    for i in range(1, n_in[1]):       # Westbound (south side)
+    # Lane 2 (inner) / Lane 1 (middle) divider
+    if n_in[1] >= 2:
+        _dash_horiz(cy + LANE_WIDTH, e_x1, e_x2)
+    for i in range(2, n_in[1]):       # Lane 1 / Lane 0 (outer, free-flow left) divider
         _dash_horiz(cy + i * LANE_WIDTH, e_x1, e_x2)
 
     # 5. Zebra crossings
@@ -109,23 +127,23 @@ def draw_road(surface, signal_controller):
         y = int(cy - n_in[3] * LANE_WIDTH + i * stripe_spacing + 3)
         pygame.draw.rect(surface, COLOR_ZEBRA, (cx - isect_half - 20, y, stripe_h, stripe_w))
 
-    # 6. Stop lines (span all waiting lanes = all inbound except leftmost free-turn lane)
+    # 6. Stop lines (span waiting lanes = Lane 1 + Lane 2, the inner two lanes toward median)
     stop_w = 4
-    if n_in[0] > 1:  # North: east side, from cx + LANE_WIDTH to cx + n_in[0]*LANE_WIDTH
-        x1 = cx + LANE_WIDTH
-        x2 = cx + n_in[0] * LANE_WIDTH
+    if n_in[0] > 1:  # North: east side, from cx (median) to cx + 2*LANE_WIDTH
+        x1 = cx
+        x2 = cx + 2 * LANE_WIDTH
         pygame.draw.rect(surface, COLOR_STOP_LINE, (x1, cy - isect_half - 25, x2 - x1, stop_w))
-    if n_in[2] > 1:  # South: west side, from cx - n_in[2]*LANE_WIDTH to cx - LANE_WIDTH
-        x1 = cx - n_in[2] * LANE_WIDTH
-        x2 = cx - LANE_WIDTH
+    if n_in[2] > 1:  # South: west side, from cx - 2*LANE_WIDTH to cx (median)
+        x1 = cx - 2 * LANE_WIDTH
+        x2 = cx
         pygame.draw.rect(surface, COLOR_STOP_LINE, (x1, cy + isect_half + 21, x2 - x1, stop_w))
-    if n_in[1] > 1:  # East: south side, from cy + LANE_WIDTH to cy + n_in[1]*LANE_WIDTH
-        y1 = cy + LANE_WIDTH
-        y2 = cy + n_in[1] * LANE_WIDTH
+    if n_in[1] > 1:  # East: south side, from cy (median) to cy + 2*LANE_WIDTH
+        y1 = cy
+        y2 = cy + 2 * LANE_WIDTH
         pygame.draw.rect(surface, COLOR_STOP_LINE, (cx + isect_half + 21, y1, stop_w, y2 - y1))
-    if n_in[3] > 1:  # West: north side, from cy - n_in[3]*LANE_WIDTH to cy - LANE_WIDTH
-        y1 = cy - n_in[3] * LANE_WIDTH
-        y2 = cy - LANE_WIDTH
+    if n_in[3] > 1:  # West: north side, from cy - 2*LANE_WIDTH to cy (median)
+        y1 = cy - 2 * LANE_WIDTH
+        y2 = cy
         pygame.draw.rect(surface, COLOR_STOP_LINE, (cx - isect_half - 25, y1, stop_w, y2 - y1))
 
     # 7. Traffic lights

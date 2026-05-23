@@ -111,17 +111,33 @@ class Simulation:
             points.append((int(px), int(py)))
         return points
 
-    def _generate_path(self, direction, movement):
+    def _generate_path(self, direction, movement, lane_off=None):
         """
         Generates waypoint trajectories with lane positions based on per-approach lane count.
         Uses get_lane_offset() and max_lane_offset() from settings for dynamic lane positioning.
+        When `lane_off` is provided, uses it for this vehicle's movement lane to prevent mismatch
+        with the spawn position.
         """
         cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
         isect = max_lane_offset(direction)  # intersection edge from center for this approach
 
-        l_off = get_lane_offset(direction, 'left')
-        s_off = get_lane_offset(direction, 'straight')
-        r_off = get_lane_offset(direction, 'right')
+        if lane_off is not None:
+            if movement == 'left':
+                l_off = lane_off
+                s_off = get_lane_offset(direction, 'straight')
+                r_off = get_lane_offset(direction, 'right')
+            elif movement == 'straight':
+                s_off = lane_off
+                l_off = get_lane_offset(direction, 'left')
+                r_off = get_lane_offset(direction, 'right')
+            else:  # right
+                r_off = lane_off
+                l_off = get_lane_offset(direction, 'left')
+                s_off = get_lane_offset(direction, 'straight')
+        else:
+            l_off = get_lane_offset(direction, 'left')
+            s_off = get_lane_offset(direction, 'straight')
+            r_off = get_lane_offset(direction, 'right')
 
         path = []
 
@@ -200,58 +216,93 @@ class Simulation:
         remaining = 1.0 - sr
         return 'left' if r < sr + remaining / 2 else 'right'
 
+    def _get_balanced_lane(self, direction, movement):
+        """
+        Returns lane index for the given movement:
+          left   → Lane 0 (single free-flow lane)
+          right  → Lane 2 (single lane)
+          straight → balance between Lane 1 and Lane 2
+        """
+        if movement == 'left':
+            return 0
+        elif movement == 'right':
+            return 2
+        # Straight: balance across Lane 1 and Lane 2
+        lane1_count = 0
+        lane2_count = 0
+        for v in self.vehicles:
+            if v.direction == direction and v.movement == 'straight':
+                if v.lane_idx == 1:
+                    lane1_count += 1
+                else:
+                    lane2_count += 1
+        return 1 if lane1_count <= lane2_count else 2
+
     def _spawn_initial_queues(self):
-        """Spawns a visible queue of exactly 5 vehicles per approach at startup, using dynamic lane offsets."""
+        """Spawns initial vehicles per approach using 1/3 split (left/straight/right), correct lane assignment."""
         cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
-        gap = 12.0
+        gap = 4.0
         
         for d in range(4):
             dir_char = DIRECTIONS[d]
             counts = self._get_counts(dir_char)
+            total = sum(counts.values())
+            if total == 0:
+                total = 6
 
+            # Build vtype pool from counts, use default if empty
             vtype_pool = []
-            for vt, count in counts.items():
-                vtype_pool.extend([vt] * count)
+            for vt, c in counts.items():
+                vtype_pool.extend([vt] * c)
             if not vtype_pool:
-                vtype_pool = ['car']
-            while len(vtype_pool) < 5:
-                vtype_pool.extend(vtype_pool)
+                vtype_pool = ['car'] * 6
+            while len(vtype_pool) < total:
+                vtype_pool.extend(vtype_pool[:total - len(vtype_pool)])
 
-            rand_off = random.uniform(0, VEHICLE_SIZES['car'][1])
-            left_offset = 200.0  # left-turn queue starts behind straight/right
-            offsets = {'left': left_offset + rand_off, 'straight': 115.0 + rand_off, 'right': 115.0 + rand_off}
-
+            # Split into 1/3 each
+            n_per_movement = max(1, total // 3)
+            movements_list = (
+                ['left'] * n_per_movement +
+                ['straight'] * n_per_movement +
+                ['right'] * (total - 2 * n_per_movement)
+            )
             random.shuffle(vtype_pool)
-            approach_spawn_counts = {'car': 0, 'motorcycle': 0, 'truck': 0, 'bus': 0}
 
-            for idx in range(5):
-                vtype = vtype_pool[idx]
-                c_idx = approach_spawn_counts[vtype]
-                movement = self._choose_movement(dir_char)
-                approach_spawn_counts[vtype] += 1
+            # Use per-lane offsets so vehicles in the same lane stack properly
+            # regardless of movement type (prevents straight/right overlap in Lane 2)
+            lane_offsets = {
+                0: 115.0 + 30.0,  # Lane 0 (left-turn) starts further back
+                1: 115.0,          # Lane 1 (straight)
+                2: 115.0,          # Lane 2 (straight + right)
+            }
 
-                lane_off = get_lane_offset(d, movement)
-                curr_offset = offsets[movement]
+            for idx in range(total):
+                vtype = vtype_pool[idx % len(vtype_pool)]
+                movement = movements_list[idx % len(movements_list)]
+                lane_idx = self._get_balanced_lane(d, movement)
+                lane_off = get_lane_offset(d, movement, lane_idx)
                 v_width, v_height = VEHICLE_SIZES[vtype]
 
-                if d == 0:    # North (moving South)
+                curr_offset = lane_offsets[lane_idx]
+                lane_offsets[lane_idx] += v_height + gap
+
+                if d == 0:
                     start_x = cx + lane_off
                     start_y = cy - (curr_offset + v_height / 2.0)
-                elif d == 1:  # East (moving West)
+                elif d == 1:
                     start_x = cx + (curr_offset + v_height / 2.0)
                     start_y = cy + lane_off
-                elif d == 2:  # South (moving North)
+                elif d == 2:
                     start_x = cx - lane_off
                     start_y = cy + (curr_offset + v_height / 2.0)
-                else:         # West (moving East)
+                else:
                     start_x = cx - (curr_offset + v_height / 2.0)
                     start_y = cy - lane_off
 
-                full_path = self._generate_path(d, movement)
+                full_path = self._generate_path(d, movement, lane_off)
                 filtered_path = self._filter_path(full_path, start_x, start_y, d)
-                vehicle = Vehicle(start_x, start_y, vtype, d, movement, filtered_path)
+                vehicle = Vehicle(start_x, start_y, vtype, d, movement, filtered_path, lane_idx)
                 self.vehicles.append(vehicle)
-                offsets[movement] += v_height + gap
 
     def _filter_path(self, path, x, y, direction):
         """Removes waypoints that are behind the starting position to prevent driving backwards."""
@@ -294,7 +345,9 @@ class Simulation:
         movement = self._choose_movement(dir_char)
 
         cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
-        lane_off = get_lane_offset(d, movement)
+        # Use balanced lane for straight vehicles
+        lane_idx = self._get_balanced_lane(d, movement)
+        lane_off = get_lane_offset(d, movement, lane_idx)
 
         if d == 0:    # North
             start_x = cx + lane_off
@@ -310,8 +363,8 @@ class Simulation:
             start_y = cy - lane_off
 
         if self._is_spawn_clear(start_x, start_y, d):
-            path = self._generate_path(d, movement)
-            vehicle = Vehicle(start_x, start_y, vtype, d, movement, path)
+            path = self._generate_path(d, movement, lane_off)
+            vehicle = Vehicle(start_x, start_y, vtype, d, movement, path, lane_idx)
             self.vehicles.append(vehicle)
 
     def run(self):

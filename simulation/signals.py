@@ -34,7 +34,6 @@ class SignalController:
         if self.external is not None:
             self.current_green = 0
             self.timer = external_controller.get_remaining_time()
-            self.gst = gst_values
         else:
             self.gst = gst_values
             self.current_green = 0

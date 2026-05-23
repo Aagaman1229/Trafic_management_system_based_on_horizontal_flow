@@ -8,19 +8,37 @@ from utils import draw_rotated_rect
 class Vehicle:
     # Class-level cache for scaled vehicle images to optimize memory and performance
     images = {}
+    variant_lists = {}
 
-    variant_lists = {
-        'car': ['car.png', 'car2.png', 'car3.png'],
-        'motorcycle': ['bike.png', 'bike2.png'],
-        'truck': ['truck.png', 'truck2.png'],
-        'bus': ['bus.png'],
-    }
+    @classmethod
+    def _discover_assets(cls):
+        """Dynamically discover all PNG assets from the assets folder and map to vehicle types."""
+        if cls.variant_lists:
+            return
+        cls.variant_lists = {'car': [], 'motorcycle': [], 'truck': [], 'bus': []}
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        assets_dir = os.path.join(base_dir, 'assets')
+        if not os.path.isdir(assets_dir):
+            return
+        for fname in os.listdir(assets_dir):
+            if not fname.lower().endswith('.png'):
+                continue
+            name_lower = fname.lower()
+            if name_lower.startswith('car'):
+                cls.variant_lists['car'].append(fname)
+            elif name_lower.startswith('bike') or name_lower.startswith('motorcycle'):
+                cls.variant_lists['motorcycle'].append(fname)
+            elif name_lower.startswith('truck'):
+                cls.variant_lists['truck'].append(fname)
+            elif name_lower.startswith('bus'):
+                cls.variant_lists['bus'].append(fname)
 
     @classmethod
     def _load_variants(cls, vtype):
         """Load and cache all image variants for a vehicle type."""
         if vtype in cls.images:
             return
+        cls._discover_assets()
         base_dir = os.path.dirname(os.path.abspath(__file__))
         loaded = []
         for fname in cls.variant_lists.get(vtype, []):
@@ -43,37 +61,36 @@ class Vehicle:
         variants = cls.images.get(vtype, [])
         return random.choice(variants) if variants else None
 
-    def __init__(self, x, y, vtype, direction, movement, path):
+    def __init__(self, x, y, vtype, direction, movement, path, lane_idx=0):
         """
         x, y: starting float positions
         vtype: 'car', 'motorcycle', 'truck', 'bus'
         direction: index (0=North, 1=East, 2=South, 3=West)
         movement: 'left', 'straight', 'right'
         path: list of waypoints [(x1,y1), (x2,y2), ...]
+        lane_idx: which lane this vehicle is in (0=left, 1=straight, 2=straight+right)
         """
         self.vtype = vtype
         self.direction = direction
         self.movement = movement
         self.path = path
         self.cur_path_idx = 0
+        self.lane_idx = lane_idx
         
         self.x = float(x)
         self.y = float(y)
         self.speed = 0.0
         
-        # Add slight variation in driving profiles for realistic organic flow
         self.max_speed = MAX_SPEED * random.uniform(0.85, 1.15)
         self.acc = ACCELERATION * random.uniform(0.9, 1.1)
         self.dec = DECELERATION * random.uniform(0.9, 1.1)
         
         self.width, self.height = VEHICLE_SIZES[vtype]
         
-        # Load asset image (None if missing, which falls back gracefully)
         self.image = Vehicle.load_image(vtype)
         self.use_image = (self.image is not None)
         self.fallback_color = VEHICLE_COLORS.get(vtype, (255, 255, 255))
         
-        # Set initial heading angle facing the first waypoint
         if len(path) > 0:
             dx = path[0][0] - self.x
             dy = path[0][1] - self.y
@@ -92,105 +109,87 @@ class Vehicle:
             dy = target[1] - self.y
             dist = math.hypot(dx, dy)
             
-            # If reached current waypoint, advance to next
             if dist < 6.0:
                 self.cur_path_idx += 1
                 if self.cur_path_idx >= len(self.path):
-                    # Off-screen or finished. Keep driving in straight line to exit
                     pass
             
-            # Calculate heading unit vectors
             if dist > 0:
                 vx = dx / dist
                 vy = dy / dist
             else:
-                vx, vy = 0.0, -1.0  # default up
+                vx, vy = 0.0, -1.0
 
-            # --- Collision Avoidance & Stop Line Detection ---
-            # We track absolute bumper-to-bumper physical gap to completely eliminate overlapping
+            # --- Collision Avoidance (same-lane only) ---
             lead_gap = float('inf')
             
-            # 1. Check other vehicles
             for other in vehicles:
                 if other is self:
                     continue
+                if not (other.direction == self.direction and
+                        other.lane_idx == self.lane_idx):
+                    continue
                 
-                # Check if in same lane (same initial direction and lane type)
-                if other.direction == self.direction and other.movement == self.movement:
-                    # Flawless same-lane queue tracking: check if other is ahead along movement axis
-                    is_ahead = False
-                    if self.direction == 0:    # Southbound (y increases)
-                        if other.y > self.y:
-                            is_ahead = True
-                    elif self.direction == 1:  # Westbound (x decreases)
-                        if other.x < self.x:
-                            is_ahead = True
-                    elif self.direction == 2:  # Northbound (y decreases)
-                        if other.y < self.y:
-                            is_ahead = True
-                    elif self.direction == 3:  # Eastbound (x increases)
-                        if other.x > self.x:
-                            is_ahead = True
-                    
-                    if is_ahead:
-                        d = math.hypot(other.x - self.x, other.y - self.y)
-                        gap = d - (self.height / 2.0 + other.height / 2.0)
-                        lead_gap = min(lead_gap, gap)
-                else:
-                    # Cross-lane safety corridor checking (in case paths intersect inside junction)
-                    ux = other.x - self.x
-                    uy = other.y - self.y
-                    d = math.hypot(ux, uy)
-                    
-                    if d < 180.0:
-                        d_long = ux * vx + uy * vy
-                        d_lat = abs(ux * (-vy) + uy * vx)
-                        
-                        # If vehicle is in front and in the same 26px wide lane buffer
-                        if d_long > 0 and d_lat < 26.0:
-                            gap = d_long - (self.height / 2.0 + other.height / 2.0)
-                            lead_gap = min(lead_gap, gap)
+                is_ahead = False
+                if self.direction == 0:
+                    if other.y > self.y:
+                        is_ahead = True
+                elif self.direction == 1:
+                    if other.x < self.x:
+                        is_ahead = True
+                elif self.direction == 2:
+                    if other.y < self.y:
+                        is_ahead = True
+                elif self.direction == 3:
+                    if other.x > self.x:
+                        is_ahead = True
+                
+                if is_ahead:
+                    d = math.hypot(other.x - self.x, other.y - self.y)
+                    gap = d - (self.height / 2.0 + other.height / 2.0)
+                    lead_gap = min(lead_gap, gap)
 
-            # 2. Check signal light (RED and ORANGE are treated as STOP commands)
-            # Free left turn (Nepal left-hand traffic) ALWAYS bypasses signal lines.
-            if self.movement != 'left' and signal_controller.get_signal_state(self.direction) in ['RED', 'ORANGE']:
+            # --- Stop-line check (only for waiting lanes: straight/right at RED/ORANGE) ---
+            # Left-turn (Lane 0) NEVER stops — free-flowing by Nepal traffic rules
+            if self.movement != 'left' and self.movement != 'left_free' and \
+               signal_controller.get_signal_state(self.direction) in ['RED', 'ORANGE']:
                 cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
                 stop_line_dist = float('inf')
                 
-                # Check if we are approaching and before the intersection box entrance (90px from center)
-                if self.direction == 0:    # North approach (moving South)
+                if self.direction == 0:
                     if self.y < cy - 90:
                         stop_line_dist = (cy - 115) - self.y
-                elif self.direction == 1:  # East approach (moving West)
+                elif self.direction == 1:
                     if self.x > cx + 90:
                         stop_line_dist = self.x - (cx + 115)
-                elif self.direction == 2:  # South approach (moving North)
+                elif self.direction == 2:
                     if self.y > cy + 90:
                         stop_line_dist = self.y - (cy + 115)
-                elif self.direction == 3:  # West approach (moving East)
+                elif self.direction == 3:
                     if self.x < cx - 90:
                         stop_line_dist = (cx - 115) - self.x
                 
-                # If within the detection range (including slight overshoots down to -25px past the stop line)
                 if -25.0 < stop_line_dist < 150.0:
-                    # Bumper gap to stop line is stop_line_dist minus half our length
                     gap = stop_line_dist - (self.height / 2.0)
                     lead_gap = min(lead_gap, gap)
 
             # --- Speed Controller ---
             target_speed = self.max_speed
             
-            # SAFE_DISTANCE defines the deceleration zone. Stopped safety gap is 12px.
             if lead_gap < SAFE_DISTANCE:
-                if lead_gap <= 12.0:
-                    # Stop fully to maintain small safety buffer
+                if lead_gap <= 4.0:
                     target_speed = 0.0
+                elif lead_gap < 12.0:
+                    target_speed = max(8.0, self.speed * 0.5)  # gentle creep
                 else:
-                    # Smoothly decelerate as we get closer to the obstacle
-                    ratio = (lead_gap - 12.0) / (SAFE_DISTANCE - 12.0)
-                    target_speed = self.max_speed * ratio
+                    stopping_dist = (self.speed * self.speed) / (2.0 * self.dec)
+                    available_dist = lead_gap - 4.0
+                    if stopping_dist >= available_dist * 0.85:
+                        target_speed = 0.0
+                    else:
+                        ratio = (lead_gap - 4.0) / (SAFE_DISTANCE - 4.0)
+                        target_speed = self.max_speed * (ratio * ratio)
 
-            # Accelerate or brake towards target speed
             if self.speed < target_speed:
                 self.speed = min(self.speed + self.acc * dt, target_speed)
             elif self.speed > target_speed:

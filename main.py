@@ -171,8 +171,11 @@ def main():
     import simulation as sim_mod
     from signals import SignalController as VisualSignalController
 
+    # Read actual live GST from shared_state (already computed by TrafficSignalController)
+    live_gst = [shared_state.get_gst(r) for r in DIR_NAMES]
+
     visual_sc = VisualSignalController(
-        [15.0, 12.0, 20.0, 15.0],
+        live_gst,
         external_controller=sc,
         shared_state=shared_state
     )
@@ -180,7 +183,7 @@ def main():
     sim = sim_mod.Simulation(
         detected_data=None,
         debug=False,
-        gst_values=None,
+        gst_values=live_gst,
         shared_state=shared_state,
         signal_controller=visual_sc,
         traffic_controller=sc
