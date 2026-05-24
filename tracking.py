@@ -4,13 +4,13 @@ from scipy.spatial import distance as dist
 
 
 class CentroidTracker:
-    def __init__(self, max_disappeared=40, max_distance=120,
+    def __init__(self, max_disappeared=25, max_distance=80,
                  line1_pt1=(0, 0), line1_pt2=(200, 200),
                  line2_pt1=(640, 480), line2_pt2=(200, 200),
-                 min_movement=40, history_len=20,
-                 min_frames=8,
-                 min_x_displacement=50,   # net pixels moved LEFT before counting
-                 min_direction_ratio=0.6): # 60%+ of steps must be leftward
+                 min_movement=25, history_len=20,
+                 min_frames=5,
+                 min_x_displacement=30,   # net pixels moved LEFT before counting
+                 min_direction_ratio=0.5): # 50%+ of steps must be leftward
 
         self.next_object_id = 0
         self.objects = OrderedDict()
@@ -136,13 +136,18 @@ class CentroidTracker:
         u = (float(diff[0]) * float(d1[1]) - float(diff[1]) * float(d1[0])) / cross
         return (0.0 <= t <= 1.0) and (0.0 <= u <= 1.0)
 
-    def _crossed_line(self, prev_centroid, curr_centroid):
-        p = np.array(prev_centroid, dtype=np.float64)
-        c = np.array(curr_centroid, dtype=np.float64)
-        return (
-            self._segments_intersect(p, c, self.line1_pt1, self.line1_pt2) or
-            self._segments_intersect(p, c, self.line2_pt1, self.line2_pt2)
-        )
+    def _crossed_line(self, hist):
+        if len(hist) < 2:
+            return False
+        for i in range(1, len(hist)):
+            p = np.array(hist[i-1], dtype=np.float64)
+            c = np.array(hist[i], dtype=np.float64)
+            if (
+                self._segments_intersect(p, c, self.line1_pt1, self.line1_pt2) or
+                self._segments_intersect(p, c, self.line2_pt1, self.line2_pt2)
+            ):
+                return True
+        return False
 
     def _get_final_class(self, object_id):
         if self.final_class[object_id] is not None:
@@ -207,7 +212,7 @@ class CentroidTracker:
                     if displacement >= self.min_movement and moving_rtl:
 
                         # Gate 4: centroid path actually crossed the line
-                        if self._crossed_line(hist[-2], hist[-1]):
+                        if self._crossed_line(hist):
                             final_vtype = self._get_final_class(object_id)
                             if final_vtype in self.vehicle_counts:
                                 self.vehicle_counts[final_vtype] += 1

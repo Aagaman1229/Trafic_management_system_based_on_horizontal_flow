@@ -8,15 +8,15 @@ from shared_state import SharedTrafficState
 
 ROAD_CONFIGS = [
     {"path": "chinapull_road.MOV", "name": "A", "full_name": "China Pull Road", "num_lanes": 6, "min_gst": 15, "max_gst": 44, "straight_ratio": 0.72},
-    {"path": "airport_road.MOV", "name": "B", "full_name": "Airport Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
+    {"path": "video1.mp4", "name": "B", "full_name": "Airport Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
     {"path": "sabhagiriha_road.MOV", "name": "C", "full_name": "Sabhagriha Chowk Road", "num_lanes": 4, "min_gst": 12, "max_gst": 44, "straight_ratio": 0.78},
     {"path": "nayabazar_road.mp4", "name": "D", "full_name": "Naya Bazar Road", "num_lanes": 4, "min_gst": 20, "max_gst": 27, "straight_ratio": 0.6},
 ]
 
 CLASS_TO_TYPE = {2: 'car', 7: 'truck', 5: 'bus', 3: 'motorcycle', 1: 'bicycle'}
 CLASSES = [1, 2, 3, 5, 7]
-CONFIDENCE = 0.35
-INFERENCE_SIZE = 416
+CONFIDENCE = 0.25
+INFERENCE_SIZE = 320
 FRAME_SKIP = 2
 
 
@@ -72,27 +72,28 @@ class VideoManager:
     def __init__(self, shared_state, model_path="yolov8s.pt"):
         self.shared_state = shared_state
         self.model_path = model_path
-        self.model = None
-        self.model_lock = threading.Lock()
         self.threads = []
         self.running = False
 
-    def start(self):
-        self.running = True
-        self.model = YOLO(self.model_path)
-        self.model.conf = CONFIDENCE
-        self.model.classes = CLASSES
+    def _create_model(self):
+        model = YOLO(self.model_path)
+        model.conf = CONFIDENCE
+        model.classes = CLASSES
         try:
-            self.model.to("cuda")
+            model.to("cuda")
             try:
-                self.model.half()
+                model.half()
             except Exception:
                 pass
         except Exception:
             try:
-                self.model.to("mps")
+                model.to("mps")
             except Exception:
                 pass
+        return model
+
+    def start(self):
+        self.running = True
 
         for cfg in ROAD_CONFIGS:
             if not os.path.exists(cfg["path"]):
@@ -109,6 +110,7 @@ class VideoManager:
         print("VideoManager: Stopping...")
 
     def _process_road(self, cfg):
+        model = self._create_model()
         cap = cv2.VideoCapture(cfg["path"])
         if not cap.isOpened():
             print(f"  ERROR: Cannot open {cfg['path']}")
@@ -124,10 +126,10 @@ class VideoManager:
         line2_pt2 = x_pt
 
         tracker = CentroidTracker(
-            max_disappeared=40, max_distance=120,
+            max_disappeared=25, max_distance=80,
             line1_pt1=line1_pt1, line1_pt2=line1_pt2,
             line2_pt1=line2_pt1, line2_pt2=line2_pt2,
-            min_movement=40, history_len=20
+            min_movement=25, history_len=20
         )
 
         TYPE_COLORS = {
@@ -138,7 +140,7 @@ class VideoManager:
             'bicycle': (0, 165, 255)
         }
 
-        display_w, display_h = 480, 360
+        display_w, display_h = 800, 600
 
         frame_count = 0
         while self.running:
@@ -151,8 +153,7 @@ class VideoManager:
             if frame_count % FRAME_SKIP != 0:
                 continue
 
-            with self.model_lock:
-                results = self.model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
+            results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
 
             raw_detections = []
             for det in results.boxes:
@@ -186,12 +187,12 @@ class VideoManager:
                 color = TYPE_COLORS.get(vtype, (255, 255, 255))
                 if bbox is not None:
                     x1, y1, x2, y2 = map(int, bbox)
-                    cv2.rectangle(draw, (x1, y1), (x2, y2), color, 3)
+                    cv2.rectangle(draw, (x1, y1), (x2, y2), color, 4)
                     label = f"ID:{track_id} {vtype}"
-                    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-                    cv2.rectangle(draw, (x1, y1 - th - 10), (x1 + tw + 10, y1), color, -1)
-                    cv2.putText(draw, label, (x1 + 5, y1 - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+                    cv2.rectangle(draw, (x1, y1 - th - 14), (x1 + tw + 14, y1), color, -1)
+                    cv2.putText(draw, label, (x1 + 7, y1 - 7),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
                 else:
                     cv2.circle(draw, (int(c_x), int(c_y)), 6, color, -1)
                 trail = tracker.get_trail(track_id)
@@ -203,32 +204,32 @@ class VideoManager:
             # Road title bar
             rn = cfg.get('full_name', f"Road {cfg['name']}")
             title = f"  {rn}  "
-            (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)
-            cv2.rectangle(draw, (8, 8), (8 + tw + 12, 8 + th + 12), (20, 20, 20), -1)
-            cv2.putText(draw, title, (15, 15 + th), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 3)
+            (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.8, 4)
+            cv2.rectangle(draw, (8, 8), (8 + tw + 16, 8 + th + 16), (20, 20, 20), -1)
+            cv2.putText(draw, title, (16, 16 + th), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (255, 255, 255), 4)
 
             # Vehicle counts with colored type badges
-            y0 = 70
+            y0 = 100
             # Header
             cv2.putText(draw, "COUNTED VEHICLES:", (15, y0),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
-            y0 += 35
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.4, (220, 220, 220), 3)
+            y0 += 50
 
             total_vehicles = sum(tracker.vehicle_counts.values())
             for vtype, count in tracker.vehicle_counts.items():
                 color = TYPE_COLORS.get(vtype, (255, 255, 255))
                 line = f"{vtype}: {count}"
-                (lw, lh), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+                (lw, lh), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)
                 # Dark pill background per row
-                cv2.rectangle(draw, (15, y0 - lh + 2), (15 + lw + 20, y0 + 6), (30, 30, 30), -1)
-                cv2.putText(draw, line, (22, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-                y0 += 32
+                cv2.rectangle(draw, (15, y0 - lh + 2), (15 + lw + 28, y0 + 8), (30, 30, 30), -1)
+                cv2.putText(draw, line, (25, y0), cv2.FONT_HERSHEY_SIMPLEX, 1.5, color, 3)
+                y0 += 48
 
             # Total badge
             total_line = f"TOTAL: {total_vehicles}"
-            (tlw, tlh), _ = cv2.getTextSize(total_line, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            cv2.rectangle(draw, (15, y0 - tlh + 2), (15 + tlw + 20, y0 + 6), (0, 80, 0), -1)
-            cv2.putText(draw, total_line, (22, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            (tlw, tlh), _ = cv2.getTextSize(total_line, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)
+            cv2.rectangle(draw, (15, y0 - tlh + 2), (15 + tlw + 28, y0 + 8), (0, 80, 0), -1)
+            cv2.putText(draw, total_line, (25, y0), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
 
             # Resize for uniform grid display
             display_frame = cv2.resize(draw, (display_w, display_h))

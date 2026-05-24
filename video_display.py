@@ -11,7 +11,7 @@ ROAD_FULL_NAMES = {
     'D': 'Naya Bazar Road',
 }
 GRID_W, GRID_H = 2, 2
-DISPLAY_W, DISPLAY_H = 480, 360
+DISPLAY_W, DISPLAY_H = 800, 600
 CANVAS_W = DISPLAY_W * GRID_W
 CANVAS_H = DISPLAY_H * GRID_H
 WIN_NAME = "Live Vehicle Counting Verification (2x2 Grid) — Prithivi Chowk, Pokhara"
@@ -38,7 +38,7 @@ def run_display_loop(shared_state):
                 rn = ROAD_FULL_NAMES.get(road, f"Road {road}")
                 cv2.putText(placeholder, f"{rn} [waiting...]",
                             (30, DISPLAY_H // 2), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.8, (100, 100, 100), 2)
+                            1.4, (100, 100, 100), 3)
                 frame = placeholder
 
             row = i // GRID_W
@@ -50,15 +50,15 @@ def run_display_loop(shared_state):
             # Overlay road name label at the bottom of each quadrant
             rn = ROAD_FULL_NAMES.get(road, f"Road {road}")
             label = f"  {rn}  "
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
             lx = x_start + 10
-            ly = y_start + DISPLAY_H - 15
-            cv2.rectangle(canvas, (lx - 5, ly - th - 8), (lx + tw + 5, ly + 5), (30, 30, 30, 180), -1)
-            cv2.putText(canvas, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            ly = y_start + DISPLAY_H - 20
+            cv2.rectangle(canvas, (lx - 5, ly - th - 10), (lx + tw + 10, ly + 8), (30, 30, 30, 180), -1)
+            cv2.putText(canvas, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
 
-        # Add a thin grid divider
-        cv2.line(canvas, (DISPLAY_W, 0), (DISPLAY_W, CANVAS_H), (50, 50, 50), 2)
-        cv2.line(canvas, (0, DISPLAY_H), (CANVAS_W, DISPLAY_H), (50, 50, 50), 2)
+        # Add grid divider
+        cv2.line(canvas, (DISPLAY_W, 0), (DISPLAY_W, CANVAS_H), (50, 50, 50), 3)
+        cv2.line(canvas, (0, DISPLAY_H), (CANVAS_W, DISPLAY_H), (50, 50, 50), 3)
 
         cv2.imshow(WIN_NAME, canvas)
         key = cv2.waitKey(1000 // FPS_TARGET) & 0xFF
