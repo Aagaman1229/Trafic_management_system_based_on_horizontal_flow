@@ -98,7 +98,9 @@ class VideoManager:
         for cfg in ROAD_CONFIGS:
             if not os.path.exists(cfg["path"]):
                 print(f"  SKIP: {cfg['path']} not found.")
+                self.shared_state.set_video_active(cfg["name"], False)
                 continue
+            self.shared_state.set_video_active(cfg["name"], True)
             t = threading.Thread(target=self._process_road, args=(cfg,), daemon=True)
             t.start()
             self.threads.append(t)

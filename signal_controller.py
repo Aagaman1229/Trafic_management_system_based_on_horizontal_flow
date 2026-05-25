@@ -31,6 +31,8 @@ class TrafficSignalController:
 
     def _compute_gst(self, road):
         cfg = ROAD_CONFIGS[road]
+        if not self.shared_state.is_video_active(road):
+            return cfg["max_gst"]
         counts = self.shared_state.get_counts(road)
         return calculate_gst(counts, cfg["num_lanes"], cfg["min_gst"], cfg["max_gst"], cfg["straight_ratio"])
 
