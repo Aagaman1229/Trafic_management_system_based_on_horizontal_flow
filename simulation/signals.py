@@ -1,68 +1,82 @@
-from settings import DIRECTIONS
+from .settings import DIRECTIONS
 
-# How many seconds of amber before the current green turns red
 ORANGE_PREVIEW_SECONDS = 5.0
 
 ROAD_ORDER = ['D', 'A', 'B', 'C']
 
 
 class SignalController:
-    """
-    Manages the traffic signals for the 4-way intersection.
-    Only one signal is GREEN at a time, cycling sequentially: A -> B -> C -> D.
+    """Visual signal controller.
 
-    When an external_controller and shared_state are provided (from the root
-    TrafficSignalController), the visual signal state is read from the live
-    controller rather than computed from static GST values.
+    When *traffic_controller* is provided (the root TrafficSignalController),
+    signal states and timers are delegated to it (single source of truth).
 
-    Amber preview behavior (NO extra time added):
-      - The active approach runs GREEN for its full GST duration.
-      - When the current GREEN has <= 5 s remaining, the ACTIVE approach
-        shows AMBER as a warning to drivers ("prepare to stop").
-        Vehicles STOP on amber if before the stop line.
-      - When timer hits 0, the current approach turns RED and the next
-        approach immediately becomes GREEN.
-      - The 5-second amber window is carved out of the active approach's
-        existing GST, not added on top.
+    When *gst_values* are provided instead, runs standalone with its own
+    internal timer in the correct GREEN → ORANGE → RED sequence.
     """
 
-    def __init__(self, gst_values, external_controller=None, shared_state=None):
-        self.external = external_controller
-        self.shared_state = shared_state
+    def __init__(self, traffic_controller_or_gst):
         self.direction_names = ROAD_ORDER
         self.road_order = ROAD_ORDER
 
-        if self.external is not None:
-            self.current_green = 0
-            self.timer = external_controller.get_remaining_time()
+        if isinstance(traffic_controller_or_gst, (list, tuple)):
+            self.tc = None
+            self.gst = list(traffic_controller_or_gst)
+            self._current_green = 0
+            self._timer = self.gst[0] if self.gst else 15.0
+            self._orange_timer = 0.0
         else:
-            self.gst = gst_values
-            self.current_green = 0
-            self.timer = self.gst[0] if self.gst else 15.0
+            self.tc = traffic_controller_or_gst
+            self._current_green = 0
+            self._timer = 0.0
+            self._orange_timer = 0.0
+
+    @property
+    def current_green(self):
+        if self.tc is not None:
+            road = self.tc.get_active_road()
+            return self.road_order.index(road)
+        return self._current_green
+
+    @current_green.setter
+    def current_green(self, val):
+        self._current_green = val
+
+    @property
+    def timer(self):
+        if self.tc is not None:
+            return self.tc.get_remaining_time()
+        if self._orange_timer > 0:
+            return self._orange_timer
+        return max(0.0, self._timer)
 
     def update(self, dt):
-        if self.external is not None:
-            road = self.external.get_active_road()
-            self.current_green = self.road_order.index(road)
-            self.timer = self.external.get_remaining_time()
+        if self.tc is not None:
+            return
+        if self._orange_timer > 0:
+            self._orange_timer -= dt
+            if self._orange_timer <= 0:
+                self._orange_timer = 0.0
+                self._current_green = (self._current_green + 1) % 4
+                self._timer = self.gst[self._current_green]
         else:
-            self.timer -= dt
-            if self.timer <= 0:
-                self.current_green = (self.current_green + 1) % 4
-                self.timer = self.gst[self.current_green]
+            self._timer -= dt
+            if self._timer <= 0:
+                self._timer = 0.0
+                self._orange_timer = ORANGE_PREVIEW_SECONDS
 
     def get_green_direction(self):
         return self.current_green
 
-    def get_phase_state(self):
-        return 'GREEN'
-
     def get_signal_state(self, direction_index):
-        if direction_index == self.current_green:
-            if self.timer <= ORANGE_PREVIEW_SECONDS:
+        if self.tc is not None:
+            road_code = self.road_order[direction_index]
+            return self.tc.get_signal_state(road_code)
+        if direction_index == self._current_green:
+            if self._orange_timer > 0:
                 return 'ORANGE'
             return 'GREEN'
         return 'RED'
 
     def is_green(self, direction_index):
-        return direction_index == self.current_green
+        return self.get_signal_state(direction_index) == 'GREEN'

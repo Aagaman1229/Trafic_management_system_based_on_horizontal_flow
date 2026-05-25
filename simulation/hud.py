@@ -1,5 +1,5 @@
 import pygame
-from settings import *
+from .settings import *
 
 def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehicles, cycle_count=0):
     """
@@ -42,20 +42,27 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
     # 3. Active Phase Timing
     curr_idx = signal_controller.get_green_direction()
     curr_name = signal_controller.direction_names[curr_idx]
+    curr_state = signal_controller.get_signal_state(curr_idx)
     remaining = signal_controller.timer
 
     phase_label = font_body.render("CURRENT PHASE:", True, (148, 163, 184))
     hud_surf.blit(phase_label, (20, y_offset))
-    
+
     rn_full = ROAD_NAMES[curr_name]
-    phase_str = f"{rn_full} [GREEN] | {remaining:.1f}s left"
-    phase_val = font_glowing.render(phase_str, True, COLOR_GREEN)
+    if curr_state == 'GREEN':
+        phase_name = 'GREEN'
+        phase_color = COLOR_GREEN
+    elif curr_state == 'ORANGE':
+        phase_name = 'AMBER'
+        phase_color = COLOR_YELLOW
+    else:
+        phase_name = 'RED'
+        phase_color = COLOR_RED
+    phase_str = f"{rn_full} [{phase_name}] | {remaining:.1f}s left"
+    phase_val = font_glowing.render(phase_str, True, phase_color)
     hud_surf.blit(phase_val, (160, y_offset - 2))
-    
     y_offset += 30
 
-    # Show amber warning on the current road when its green is about to expire
-    curr_state = signal_controller.get_signal_state(curr_idx)
     if curr_state == 'ORANGE':
         amber_str = f"{rn_full} [AMBER] - Prepare to stop!"
         amber_val = font_data.render(amber_str, True, COLOR_YELLOW)
@@ -69,8 +76,12 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
 
     # Draw a table-like view for GSTs
     for i in range(4):
-        rn = ROAD_NAMES_SHORT[DIRECTIONS[i]]
-        gst_val = gst_values[i]
+        road_char = DIRECTIONS[i]
+        rn = ROAD_NAMES_SHORT[road_char]
+        if isinstance(gst_values, dict):
+            gst_val = gst_values.get(road_char, 0.0)
+        else:
+            gst_val = gst_values[i]
         
         sig_state = signal_controller.get_signal_state(i)
         if sig_state == 'GREEN':

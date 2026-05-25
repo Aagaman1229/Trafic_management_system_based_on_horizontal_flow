@@ -220,13 +220,31 @@ class CentroidTracker:
                                 self.counted[object_id] = True
 
             draw_class = self._get_final_class(object_id)
-            bbox = self.bboxes.get(object_id)
+            
+            # --- Dynamic visual cleanup ---
+            # 1. Instantly remove bounding box if vehicle disappeared (not in current frame)
+            if self.disappeared[object_id] > 0:
+                bbox = None
+            else:
+                bbox = self.bboxes.get(object_id)
+                
+            # 2. Check if vehicle is moving left-to-right (rightward). If so, we do not draw/trace it.
+            hist = self.history[object_id]
+            is_moving_right = False
+            if len(hist) >= 4:
+                net_x_right = hist[-1][0] - hist[0][0]  # positive = moved right
+                if net_x_right > 15:
+                    is_moving_right = True
+            
+            if is_moving_right:
+                bbox = None
+
             active_tracks.append((
                 object_id,
                 centroid[0], centroid[1],
                 draw_class,
                 bbox,
-                True
+                not is_moving_right
             ))
         return active_tracks
 

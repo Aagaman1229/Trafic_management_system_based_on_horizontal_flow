@@ -1,5 +1,5 @@
 import pygame
-from settings import *
+from .settings import *
 
 def _inbound_lanes(d):
     return APPROACH_LANES.get(DIRECTIONS[d], 2)

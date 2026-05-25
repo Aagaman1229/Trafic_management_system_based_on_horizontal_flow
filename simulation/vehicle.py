@@ -2,8 +2,8 @@ import pygame
 import math
 import random
 import os
-from settings import *
-from utils import draw_rotated_rect
+from .settings import *
+from .utils import draw_rotated_rect
 
 class Vehicle:
     # Class-level cache for scaled vehicle images to optimize memory and performance
@@ -171,7 +171,7 @@ class Vehicle:
                     if self.x < cx - 90:
                         stop_line_dist = (cx - 115) - self.x
                 
-                if -25.0 < stop_line_dist < 150.0:
+                if 0.0 <= stop_line_dist < 150.0:
                     gap = stop_line_dist - (self.height / 2.0)
                     lead_gap = min(lead_gap, gap)
 
