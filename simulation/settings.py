@@ -35,7 +35,8 @@ VEHICLE_COLORS = {
     'car': (239, 68, 68),        # Emerald red
     'motorcycle': (245, 158, 11), # Yellow/Gold
     'truck': (148, 163, 184),     # Slate gray
-    'bus': (59, 130, 246)         # Indigo blue
+    'bus': (59, 130, 246),        # Indigo blue
+    'bicycle': (34, 211, 238)     # Cyan
 }
 
 # Vehicle sizes (width, height)
@@ -43,7 +44,8 @@ VEHICLE_SIZES = {
     'car': (20, 42),
     'motorcycle': (12, 26),
     'truck': (24, 60),
-    'bus': (26, 70)
+    'bus': (26, 70),
+    'bicycle': (10, 22)
 }
 
 # Physics (values in pixels and pixels/sec using delta time)

@@ -15,7 +15,7 @@ class Vehicle:
         """Dynamically discover all PNG assets from the assets folder and map to vehicle types."""
         if cls.variant_lists:
             return
-        cls.variant_lists = {'car': [], 'motorcycle': [], 'truck': [], 'bus': []}
+        cls.variant_lists = {'car': [], 'motorcycle': [], 'truck': [], 'bus': [], 'bicycle': []}
         base_dir = os.path.dirname(os.path.abspath(__file__))
         assets_dir = os.path.join(base_dir, 'assets')
         if not os.path.isdir(assets_dir):
@@ -32,6 +32,8 @@ class Vehicle:
                 cls.variant_lists['truck'].append(fname)
             elif name_lower.startswith('bus'):
                 cls.variant_lists['bus'].append(fname)
+            elif name_lower.startswith('bicycle') or name_lower.startswith('cycle'):
+                cls.variant_lists['bicycle'].append(fname)
 
     @classmethod
     def _load_variants(cls, vtype):

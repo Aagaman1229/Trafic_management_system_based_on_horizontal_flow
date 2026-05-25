@@ -7,9 +7,9 @@ from tracking import CentroidTracker
 from shared_state import SharedTrafficState
 
 ROAD_CONFIGS = [
-    {"path": "chinapull_road.MOV", "name": "A", "full_name": "China Pull Road", "num_lanes": 6, "min_gst": 15, "max_gst": 44, "straight_ratio": 0.72},
-    {"path": "video1.mp4", "name": "B", "full_name": "Airport Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
-    {"path": "sabhagiriha_road.MOV", "name": "C", "full_name": "Sabhagriha Chowk Road", "num_lanes": 4, "min_gst": 12, "max_gst": 44, "straight_ratio": 0.78},
+    {"path": "china_pull_main.mp4", "name": "A", "full_name": "China Pull Road", "num_lanes": 6, "min_gst": 15, "max_gst": 44, "straight_ratio": 0.72},
+    {"path": "airport_main.mp4", "name": "B", "full_name": "Airport Road", "num_lanes": 4, "min_gst": 15, "max_gst": 28, "straight_ratio": 0.72},
+    {"path": "sabha_main.mp4", "name": "C", "full_name": "Sabhagriha Chowk Road", "num_lanes": 4, "min_gst": 12, "max_gst": 44, "straight_ratio": 0.78},
     {"path": "nayabazar_road.mp4", "name": "D", "full_name": "Naya Bazar Road", "num_lanes": 4, "min_gst": 20, "max_gst": 27, "straight_ratio": 0.6},
 ]
 
