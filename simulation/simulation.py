@@ -1,5 +1,4 @@
 import pygame
-import sys
 import random
 import math
 from .settings import *
@@ -22,7 +21,8 @@ class Simulation:
     """
 
     def __init__(self, timeline_replay, gst_values=None, debug=False,
-                 signal_controller=None, traffic_controller=None):
+                 signal_controller=None, traffic_controller=None,
+                 data_callback=None):
         pygame.init()
         self.debug = debug
         self.clock = pygame.time.Clock()
@@ -30,6 +30,7 @@ class Simulation:
 
         self.timeline = timeline_replay
         self.traffic_controller = traffic_controller
+        self.data_callback = data_callback
 
         if gst_values is not None:
             self.gst_values = gst_values
@@ -257,6 +258,9 @@ class Simulation:
             elapsed += dt
             self.timeline.time = elapsed
 
+            if self.data_callback:
+                self.data_callback(elapsed)
+
             self.signal_controller.update(dt)
             if self.traffic_controller is not None:
                 self.traffic_controller.update(dt)
@@ -287,4 +291,3 @@ class Simulation:
             pygame.display.flip()
 
         pygame.quit()
-        sys.exit()
