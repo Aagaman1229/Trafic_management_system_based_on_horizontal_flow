@@ -218,14 +218,8 @@ class Vehicle:
         """
         Renders the vehicle. If assets are available, blits the rotated PNG image.
         Otherwise, draws an extremely premium vector fallback.
-        Introduces a realistic engine vibration jitter when stopped during the ORANGE phase.
         """
-        # Determine engine idle vibration offset
         draw_x, draw_y = self.x, self.y
-        if self.speed < 1.0 and signal_controller.get_signal_state(self.direction) == 'ORANGE':
-            # Add premium visual jitter/vibration (simulating engine start & gear engagement)
-            draw_x += random.uniform(-0.8, 0.8)
-            draw_y += random.uniform(-0.8, 0.8)
 
         if self.use_image and not debug:
             # Draw PNG image

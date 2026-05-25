@@ -188,17 +188,14 @@ class VideoManager:
                 if bbox is not None:
                     x1, y1, x2, y2 = map(int, bbox)
                     cv2.rectangle(draw, (x1, y1), (x2, y2), color, 4)
-                    label = f"ID:{track_id} {vtype}"
-                    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
-                    cv2.rectangle(draw, (x1, y1 - th - 14), (x1 + tw + 14, y1), color, -1)
-                    cv2.putText(draw, label, (x1 + 7, y1 - 7),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
                 else:
                     cv2.circle(draw, (int(c_x), int(c_y)), 6, color, -1)
-                trail = tracker.get_trail(track_id)
-                if len(trail) > 1:
-                    pts = np.array(trail, np.int32).reshape((-1, 1, 2))
-                    cv2.polylines(draw, [pts], False, color, 2)
+                # Only draw trail before the vehicle crosses the counting line
+                if not tracker.counted.get(track_id, False):
+                    trail = tracker.get_trail(track_id)
+                    if len(trail) > 1:
+                        pts = np.array(trail, np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(draw, [pts], False, color, 2)
 
             # Overlay counted vehicles — large, high-contrast, with dark background
             # Road title bar

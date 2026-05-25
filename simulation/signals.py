@@ -1,6 +1,6 @@
 from settings import DIRECTIONS
 
-# How many seconds before the current green expires to show orange on the NEXT approach
+# How many seconds of amber before the current green turns red
 ORANGE_PREVIEW_SECONDS = 5.0
 
 ROAD_ORDER = ['D', 'A', 'B', 'C']
@@ -15,13 +15,14 @@ class SignalController:
     TrafficSignalController), the visual signal state is read from the live
     controller rather than computed from static GST values.
 
-    Orange preview behavior (NO extra time added):
-      - The current approach runs GREEN for its full GST duration.
-      - When the current GREEN has <= 5 s remaining, the NEXT approach
-        shows ORANGE as a heads-up to drivers ("prepare to move").
-        Vehicles still STOP on orange -- it is not a go signal.
-      - When timer hits 0, the next approach immediately becomes GREEN.
-      - The 5-second orange window is carved out of the current approach's
+    Amber preview behavior (NO extra time added):
+      - The active approach runs GREEN for its full GST duration.
+      - When the current GREEN has <= 5 s remaining, the ACTIVE approach
+        shows AMBER as a warning to drivers ("prepare to stop").
+        Vehicles STOP on amber if before the stop line.
+      - When timer hits 0, the current approach turns RED and the next
+        approach immediately becomes GREEN.
+      - The 5-second amber window is carved out of the active approach's
         existing GST, not added on top.
     """
 
@@ -58,12 +59,9 @@ class SignalController:
 
     def get_signal_state(self, direction_index):
         if direction_index == self.current_green:
+            if self.timer <= ORANGE_PREVIEW_SECONDS:
+                return 'ORANGE'
             return 'GREEN'
-
-        next_green = (self.current_green + 1) % 4
-        if direction_index == next_green and self.timer <= ORANGE_PREVIEW_SECONDS:
-            return 'ORANGE'
-
         return 'RED'
 
     def is_green(self, direction_index):

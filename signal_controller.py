@@ -60,12 +60,10 @@ class TrafficSignalController:
     def get_signal_state(self, road):
         active = self.get_active_road()
         if road == active:
+            remaining = self.get_remaining_time()
+            if remaining <= ORANGE_PREVIEW_SECONDS:
+                return 'ORANGE'
             return 'GREEN'
-        next_idx = (self._current_idx + 1) % 4
-        next_road = self.road_order[next_idx]
-        remaining = self.get_remaining_time()
-        if road == next_road and remaining <= ORANGE_PREVIEW_SECONDS:
-            return 'ORANGE'
         return 'RED'
 
     def start(self):

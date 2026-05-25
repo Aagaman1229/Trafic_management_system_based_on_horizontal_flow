@@ -54,15 +54,12 @@ def draw_hud(surface, signal_controller, initial_counts, gst_values, active_vehi
     
     y_offset += 30
 
-    # Show orange preview info when <= 5s remaining
-    next_idx = (curr_idx + 1) % 4
-    next_name = signal_controller.direction_names[next_idx]
-    next_state = signal_controller.get_signal_state(next_idx)
-    if next_state == 'ORANGE':
-        rn_next = ROAD_NAMES[next_name]
-        orange_str = f"{rn_next} [ORANGE] - Get Ready!"
-        orange_val = font_data.render(orange_str, True, COLOR_YELLOW)
-        hud_surf.blit(orange_val, (160, y_offset))
+    # Show amber warning on the current road when its green is about to expire
+    curr_state = signal_controller.get_signal_state(curr_idx)
+    if curr_state == 'ORANGE':
+        amber_str = f"{rn_full} [AMBER] - Prepare to stop!"
+        amber_val = font_data.render(amber_str, True, COLOR_YELLOW)
+        hud_surf.blit(amber_val, (160, y_offset))
     y_offset += 26
 
     # 4. Live / Pre-computed GST values
